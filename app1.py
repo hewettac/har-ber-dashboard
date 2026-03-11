@@ -48,6 +48,7 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
 # -------------------------
 # Sidebar Logo
 # -------------------------
@@ -176,11 +177,6 @@ if uploaded_file:
         concept_summary_all = df["concept"].value_counts().head(6).reset_index()
         concept_summary_all.columns = ["concept","count"]
         concept_pie_fig_all = px.pie(concept_summary_all, names="concept", values="count", title="Top 6 Concepts", color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
-
-        st.markdown('<div class="section-header">Gain / Loss & Top Concepts</div>', unsafe_allow_html=True)
-        r1c1, r1c2 = st.columns(2)
-        r1c1.plotly_chart(gain_fig_all, use_container_width=True)
-        r1c2.plotly_chart(concept_fig_all, use_container_width=True)
 
         st.markdown('<div class="section-header">Run/Pass & Concept Distribution</div>', unsafe_allow_html=True)
         r2c1, r2c2 = st.columns(2)
@@ -384,7 +380,3 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
-
-
-
-
