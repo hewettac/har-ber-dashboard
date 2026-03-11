@@ -101,7 +101,7 @@ if uploaded_file:
     # -------------------------
     tabs = st.tabs([
         "Play Success Prediction",
-        "Explosive Play Analysis",
+        "Explosive & Success Metrics",
         "Opponent Comparison",
         "Best Play Call",
         "Play Call Advisor",
