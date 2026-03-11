@@ -360,30 +360,29 @@ if uploaded_file:
     
         if advisor_df.empty:
             st.warning("No plays available for this selection.")
-            st.stop()
+        else:
+            # Top concepts for situation
+            top_concepts = advisor_df["concept"].value_counts().head(5).reset_index()
+            top_concepts.columns = ["concept", "count"]
     
-        # Top concepts for situation
-        top_concepts = advisor_df["concept"].value_counts().head(5).reset_index()
-        top_concepts.columns = ["concept", "count"]
+            # Display as horizontal bar chart
+            fig = px.bar(
+                top_concepts,
+                x="count",
+                y="concept",
+                orientation="h",
+                color_discrete_sequence=["#7FDBFF"],
+                template="plotly_dark",
+                title="Top Concepts for This Situation"
+            )
+            st.plotly_chart(fig, use_container_width=True)
     
-        # Display as horizontal bar chart
-        fig = px.bar(
-            top_concepts,
-            x="count",
-            y="concept",
-            orientation="h",
-            color_discrete_sequence=["#7FDBFF"],
-            template="plotly_dark",
-            title="Top Concepts for This Situation"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-        # Optional table for reference
-        st.markdown('<div class="section-header">Play Data</div>', unsafe_allow_html=True)
-        st.dataframe(
-            advisor_df[["concept","play_type","play_direction","gain_loss"]].sort_values("gain_loss", ascending=False),
-            use_container_width=True
-        )
+            # Optional table for reference
+            st.markdown('<div class="section-header">Play Data</div>', unsafe_allow_html=True)
+            st.dataframe(
+                advisor_df[["concept","play_type","play_direction","gain_loss"]].sort_values("gain_loss", ascending=False),
+                use_container_width=True
+            )
     
     # -------------------------
     # TAB 6: Defensive Tendencies
@@ -391,47 +390,36 @@ if uploaded_file:
     with tab6:
         st.markdown('<div class="section-header">Defensive Tendencies</div>', unsafe_allow_html=True)
     
-        # User inputs
         down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="defense_down")
         yard_input = st.slider("Yardline", -50, 50, 0, key="defense_yardline")
     
-        # Filter plays by down and yardline
         defense_df = df[(df["down"] == down_input) & (df["yardline"] == yard_input)]
     
         if defense_df.empty:
             st.warning("No plays for this selection.")
-            st.stop()
+        else:
+            defense_summary = defense_df.groupby(["play_type","concept"]).size().reset_index(name="count")
+            pivot_df = defense_summary.pivot(index="play_type", columns="concept", values="count").fillna(0)
     
-        # Calculate defensive tendencies: distribution of play type vs. concept
-        defense_summary = defense_df.groupby(["play_type","concept"]).size().reset_index(name="count")
+            fig = px.imshow(
+                pivot_df,
+                text_auto=True,
+                color_continuous_scale="Blues",
+                labels={"x":"Play Concept","y":"Play Type","color":"Count"},
+                title="Defensive Tendencies Heatmap",
+                template="plotly_dark"
+            )
+            st.plotly_chart(fig, use_container_width=True)
     
-        # Pivot table for heatmap
-        pivot_df = defense_summary.pivot(index="play_type", columns="concept", values="count").fillna(0)
+            st.markdown('<div class="section-header">Raw Play Counts</div>', unsafe_allow_html=True)
+            st.dataframe(defense_summary.sort_values("count", ascending=False), use_container_width=True)
     
-        # Heatmap
-        fig = px.imshow(
-            pivot_df,
-            text_auto=True,
-            color_continuous_scale="Blues",
-            labels={"x":"Play Concept","y":"Play Type","color":"Count"},
-            title="Defensive Tendencies Heatmap",
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-        # Optional raw table
-        st.markdown('<div class="section-header">Raw Play Counts</div>', unsafe_allow_html=True)
-        st.dataframe(defense_summary.sort_values("count", ascending=False), use_container_width=True)
-        
     # -------------------------
     # TAB 7: Opponent Play Predictor
     # -------------------------
     with tab7:
         st.markdown('<div class="section-header">Opponent Play Predictor</div>', unsafe_allow_html=True)
     
-        # -------------------------
-        # Opponent File Upload
-        # -------------------------
         opponent_file = st.file_uploader(
             "Upload Opponent Hudl Excel File",
             type=["xlsx", "xls"],
@@ -439,107 +427,82 @@ if uploaded_file:
         )
     
         if opponent_file:
-            opp_df = pd.read_excel(opponent_file)
-            opp_df.columns = opp_df.columns.str.lower().str.strip()
+            try:
+                opp_df = pd.read_excel(opponent_file)
+                opp_df.columns = opp_df.columns.str.lower().str.strip()
+                st.write("Uploaded columns:", opp_df.columns.tolist())
     
-            # -------------------------
-            # Rename Columns to Standard
-            # -------------------------
-            COLUMN_MAP = {
-                "down": ["down", "dn"],
-                "distance": ["dist", "togo", "yards to go", "ydstogo"],
-                "yardline": ["yard ln", "spot", "ball on"],
-                "concept": ["off play"],
-                "play_type": ["play type", "playtype", "type"]
-            }
-            rename_dict = {}
-            for standard, variants in COLUMN_MAP.items():
-                for col in opp_df.columns:
-                    if col in variants:
-                        rename_dict[col] = standard
-            opp_df = opp_df.rename(columns=rename_dict)
+                # Standardize column names
+                COLUMN_MAP = {
+                    "down": ["down", "dn"],
+                    "distance": ["dist", "togo", "yards to go", "ydstogo"],
+                    "yardline": ["yard ln", "spot", "ball on"],
+                    "concept": ["off play"],
+                    "play_type": ["play type", "playtype", "type"]
+                }
+                rename_dict = {}
+                for standard, variants in COLUMN_MAP.items():
+                    for col in opp_df.columns:
+                        if col in variants:
+                            rename_dict[col] = standard
+                opp_df = opp_df.rename(columns=rename_dict)
     
-            # -------------------------
-            # Drop missing values
-            # -------------------------
-            model_df = opp_df.dropna(subset=["down", "distance", "yardline", "concept", "play_type"])
-            X = model_df[["down", "distance", "yardline"]]
-            y_concept = model_df["concept"]
-            y_type = model_df["play_type"]
+                # Drop missing values
+                model_df = opp_df.dropna(subset=["down", "distance", "yardline", "concept", "play_type"])
+                if model_df.empty:
+                    st.warning("No usable data after cleaning. Check column names.")
+                else:
+                    X = model_df[["down", "distance", "yardline"]]
+                    y_concept = model_df["concept"]
+                    y_type = model_df["play_type"]
     
-            # -------------------------
-            # Train Models
-            # -------------------------
-            concept_model = RandomForestClassifier(n_estimators=200, random_state=42)
-            type_model = RandomForestClassifier(n_estimators=200, random_state=42)
-            concept_model.fit(X, y_concept)
-            type_model.fit(X, y_type)
+                    concept_model = RandomForestClassifier(n_estimators=200, random_state=42)
+                    type_model = RandomForestClassifier(n_estimators=200, random_state=42)
+                    concept_model.fit(X, y_concept)
+                    type_model.fit(X, y_type)
     
-            st.success("Opponent model trained successfully!")
+                    st.success("Opponent model trained successfully!")
     
-            # -------------------------
-            # User Inputs for Prediction
-            # -------------------------
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                down_input = st.selectbox(
-                    "Down",
-                    sorted(model_df["down"].dropna().unique()),
-                    key="predictor_down"
-                )
-            with c2:
-                dist_input = st.slider("Distance", 1, 20, 5, key="predictor_distance")
-            with c3:
-                yard_input = st.slider("Yardline", -50, 50, 0, key="predictor_yardline")
+                    # User Inputs for Prediction
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        down_input = st.selectbox("Down", sorted(model_df["down"].dropna().unique()), key="predictor_down")
+                    with c2:
+                        dist_input = st.slider("Distance", 1, 20, 5, key="predictor_distance")
+                    with c3:
+                        yard_input = st.slider("Yardline", -50, 50, 0, key="predictor_yardline")
     
-            # -------------------------
-            # Make Predictions
-            # -------------------------
-            pred_df = pd.DataFrame({"down": [down_input], "distance": [dist_input], "yardline": [yard_input]})
+                    pred_df = pd.DataFrame({"down": [down_input], "distance": [dist_input], "yardline": [yard_input]})
     
-            concept_probs = concept_model.predict_proba(pred_df)[0]
-            concept_names = concept_model.classes_
-            type_probs = type_model.predict_proba(pred_df)[0]
-            type_names = type_model.classes_
+                    concept_probs = concept_model.predict_proba(pred_df)[0]
+                    concept_names = concept_model.classes_
+                    type_probs = type_model.predict_proba(pred_df)[0]
+                    type_names = type_model.classes_
     
-            type_results = dict(zip(type_names, type_probs))
-            run_prob = type_results.get("Run", 0) * 100
-            pass_prob = type_results.get("Pass", 0) * 100
+                    type_results = dict(zip(type_names, type_probs))
+                    run_prob = type_results.get("Run", 0) * 100
+                    pass_prob = type_results.get("Pass", 0) * 100
     
-            concept_df = pd.DataFrame({
-                "concept": concept_names,
-                "prob": concept_probs * 100
-            }).sort_values("prob", ascending=False)
+                    concept_df = pd.DataFrame({"concept": concept_names, "prob": concept_probs * 100}).sort_values("prob", ascending=False)
+                    top3 = concept_df.head(3)
     
-            top3 = concept_df.head(3)
+                    c1, c2 = st.columns(2)
+                    c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(run_prob,1)}%</div><div class="metric-label">Run Probability</div></div>', unsafe_allow_html=True)
+                    c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(pass_prob,1)}%</div><div class="metric-label">Pass Probability</div></div>', unsafe_allow_html=True)
     
-            # -------------------------
-            # Display Metric Cards
-            # -------------------------
-            c1, c2 = st.columns(2)
-            c1.markdown(
-                f'<div class="metric-card"><div class="metric-number">{round(run_prob,1)}%</div><div class="metric-label">Run Probability</div></div>',
-                unsafe_allow_html=True
-            )
-            c2.markdown(
-                f'<div class="metric-card"><div class="metric-number">{round(pass_prob,1)}%</div><div class="metric-label">Pass Probability</div></div>',
-                unsafe_allow_html=True
-            )
+                    fig = px.bar(
+                        top3,
+                        x="prob",
+                        y="concept",
+                        orientation="h",
+                        color_discrete_sequence=["#7FDBFF"],
+                        template="plotly_dark",
+                        title="Top 3 Predicted Plays"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
     
-            # -------------------------
-            # Top 3 Predicted Plays Chart
-            # -------------------------
-            fig = px.bar(
-                top3,
-                x="prob",
-                y="concept",
-                orientation="h",
-                color_discrete_sequence=["#7FDBFF"],
-                template="plotly_dark",
-                title="Top 3 Predicted Plays"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    
+            except Exception as e:
+                st.error(f"Error processing opponent file: {e}")
         else:
             st.info("Upload an opponent Excel file to train the play predictor.")
     
@@ -549,9 +512,6 @@ if uploaded_file:
     with tab8:
         st.markdown('<div class="section-header">Play Call Win Probability</div>', unsafe_allow_html=True)
     
-        # -------------------------
-        # Info / Explanation
-        # -------------------------
         st.info("""
         **How to read this tab:**
         - **Expected Gain:** Average yards gained historically for this play/concept.
@@ -560,9 +520,6 @@ if uploaded_file:
         - **Best Concept:** Concept with highest Expected Gain × Success %.
         """)
     
-        # -------------------------
-        # User Inputs
-        # -------------------------
         down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="winprob_down")
         dist_input = st.slider("Distance to Go", 1, 20, 5, key="winprob_distance")
         yard_input = st.slider("Yardline", -50, 50, 0, key="winprob_yardline")
@@ -573,85 +530,56 @@ if uploaded_file:
             key="winprob_concepts"
         )
     
-        # -------------------------
-        # Filter historical plays
-        # -------------------------
         hist_df = df[
             (df["down"] == down_input) &
             (df["distance"] == dist_input) &
             (df["yardline"] == yard_input) &
             (df["concept"].isin(play_type_input))
-        ]
+        ].copy()
     
         if hist_df.empty:
             st.warning("No historical plays found for this combination. Adjust inputs.")
-            st.stop()
+        else:
+            hist_df["success"] = hist_df["gain_loss"] >= max(4, dist_input)
+            hist_df["explosive"] = hist_df["gain_loss"] >= 20
     
-        # -------------------------
-        # Compute metrics
-        # -------------------------
-        hist_df["success"] = hist_df["gain_loss"] >= max(4, dist_input)
-        hist_df["explosive"] = hist_df["gain_loss"] >= 20
+            summary = hist_df.groupby("concept").agg(
+                expected_gain=("gain_loss","mean"),
+                success_pct=("success","mean"),
+                explosive_pct=("explosive","mean")
+            ).reset_index()
     
-        summary = hist_df.groupby("concept").agg(
-            expected_gain=("gain_loss","mean"),
-            success_pct=("success","mean"),
-            explosive_pct=("explosive","mean")
-        ).reset_index()
+            summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
+            best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
     
-        summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
+            c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
     
-        best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
+            fig_summary = px.bar(
+                summary.sort_values("expected_gain"),
+                x="expected_gain",
+                y="concept",
+                orientation="h",
+                color="success_pct",
+                color_continuous_scale="Blues",
+                text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
+                labels={"expected_gain":"Expected Gain (yards)","concept":"Play Concept","success_pct":"Success %"},
+                title="Play Comparison: Expected Gain vs Success %",
+                template="plotly_dark"
+            )
+            fig_summary.update_layout(yaxis=dict(dtick=1))
+            st.plotly_chart(fig_summary, use_container_width=True)
     
-        # -------------------------
-        # Display Metric Cards
-        # -------------------------
-        c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(
-            f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>',
-            unsafe_allow_html=True
-        )
-        c2.markdown(
-            f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>',
-            unsafe_allow_html=True
-        )
-        c3.markdown(
-            f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>',
-            unsafe_allow_html=True
-        )
-        c4.markdown(
-            f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>',
-            unsafe_allow_html=True
-        )
-    
-        # -------------------------
-        # Plot: Expected Gain vs Success %
-        # -------------------------
-        fig_summary = px.bar(
-            summary.sort_values("expected_gain"),
-            x="expected_gain",
-            y="concept",
-            orientation="h",
-            color="success_pct",
-            color_continuous_scale="Blues",
-            text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
-            labels={"expected_gain":"Expected Gain (yards)","concept":"Play Concept","success_pct":"Success %"},
-            title="Play Comparison: Expected Gain vs Success %",
-            template="plotly_dark"
-        )
-        fig_summary.update_layout(yaxis=dict(dtick=1))
-        st.plotly_chart(fig_summary, use_container_width=True)
-    
-        # -------------------------
-        # Optional Detailed Table
-        # -------------------------
-        st.markdown('<div class="section-header">Detailed Play Stats</div>', unsafe_allow_html=True)
-        summary_display = summary.copy()
-        summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
-        summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
-        summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
-        summary_display = summary_display.sort_values("rank_score", ascending=False)
-        st.dataframe(
-            summary_display[["concept","expected_gain","success_pct","explosive_pct"]],
-            use_container_width=True
-        )
+            st.markdown('<div class="section-header">Detailed Play Stats</div>', unsafe_allow_html=True)
+            summary_display = summary.copy()
+            summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
+            summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
+            summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
+            summary_display = summary_display.sort_values("rank_score", ascending=False)
+            st.dataframe(
+                summary_display[["concept","expected_gain","success_pct","explosive_pct"]],
+                use_container_width=True
+            )
