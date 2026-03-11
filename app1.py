@@ -168,7 +168,7 @@ if uploaded_file:
         gain_fig_all = px.bar(gain_summary_all, x="gain_loss", y="plays", labels={"gain_loss":"Yards Gained","plays":"Number of Plays"}, title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
 
         top_concepts_all = df.groupby(["concept","play_direction"]).size().reset_index(name="count").sort_values("count",ascending=False).head(8)
-        concept_fig_all = px.bar(top_concepts_all, x="count", y="concept", color="play_direction", orientation="h", title="Top 6 Concepts by Play Direction", template="plotly_dark", color_discrete_sequence=["#7FDBFF","#0A2342","#AAAAAA"])
+        concept_fig_all = px.bar(top_concepts_all, x="count", y="concept", color="play_direction", orientation="h", title="Most Frequent Concepts by Play Direction", template="plotly_dark", color_discrete_sequence=["#7FDBFF","#0A2342","#AAAAAA"])
 
         play_type_summary_all = df["play_type"].value_counts().reset_index()
         play_type_summary_all.columns = ["play_type","count"]
@@ -176,7 +176,7 @@ if uploaded_file:
 
         concept_summary_all = df["concept"].value_counts().head(6).reset_index()
         concept_summary_all.columns = ["concept","count"]
-        concept_pie_fig_all = px.pie(concept_summary_all, names="concept", values="count", title="Top 6 Concepts", color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
+        concept_pie_fig_all = px.pie(concept_summary_all, names="concept", values="count", title="Most Frequent Concepts", color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
 
         r1c1, r1c2 = st.columns(2)
         r1c1.plotly_chart(gain_fig_all, use_container_width=True)
@@ -212,11 +212,11 @@ if uploaded_file:
                           labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
                           title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
 
-        # Top 8 Concepts
+        # Most ran concepts
         top_concepts = selected.groupby(["concept", "play_direction"]).size().reset_index(name="count").sort_values(
             "count", ascending=False).head(8)
         concept_fig = px.bar(top_concepts, x="count", y="concept", color="play_direction", orientation="h",
-                             title="Top 6 Concepts by Play Direction", template="plotly_dark",
+                             title="Most Frequent Concepts by Play Direction", template="plotly_dark",
                              color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"])
 
         # Run/Pass Pie
@@ -229,7 +229,7 @@ if uploaded_file:
         # Concept Pie (Top 6)
         concept_summary = selected["concept"].value_counts().head(6).reset_index()
         concept_summary.columns = ["concept", "count"]
-        concept_pie_fig = px.pie(concept_summary, names="concept", values="count", title="Top 6 Concepts",
+        concept_pie_fig = px.pie(concept_summary, names="concept", values="count", title="Most Frequent Concepts",
                                  color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
 
         # Layout Charts
@@ -383,4 +383,5 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
