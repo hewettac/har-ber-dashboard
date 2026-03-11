@@ -222,13 +222,12 @@ if uploaded_file:
 
             with st.expander("How to read this chart"):
                 st.write("""
-                This heatmap shows the **success rate of plays by down and field position**.
+                This heatmap shows the success rate of plays by down and field position.
 
                 - Darker blue = higher success rate
                 - Lighter blue = lower success rate
                 - Success is defined as gaining **4 or more yards on a play**
 
-                Coaches can use this to identify **field zones where the offense is most efficient**.
                 """)
 
         import plotly.express as px
@@ -347,4 +346,5 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
