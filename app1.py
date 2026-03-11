@@ -376,13 +376,14 @@ if uploaded_file:
         st.markdown("### Predict Play Type")
 
         pred_down = st.selectbox("Down", sorted(df["down"].unique()))
-        pred_dist = st.number_input("Distance", 1, 20, 5)
+        pred_dist = st.number_input("Distance", 1, 20, 10)
         pred_yard = st.slider("Yardline", -50, 50, 0)
 
         prediction = model.predict([[pred_down, pred_dist, pred_yard]])
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
 
 
