@@ -208,54 +208,77 @@ if uploaded_file:
         st.plotly_chart(fig, use_container_width=True)
 
 # --------------------------------------------------------
-# TAB 8: Play Call Win Probability Model (Full)
+# TAB 8: Play Call Win Probability Dashboard (Polished)
 # --------------------------------------------------------
 with tab8:
     st.markdown('<div class="section-header">Play Call Win Probability</div>', unsafe_allow_html=True)
-    st.write("Predict expected gain, success %, explosive %, and turnover risk for your play calls.")
-
+    
+    # -------------------------
+    # Info / Explanation
+    # -------------------------
+    st.info("""
+    **How to read this tab:**
+    - **Expected Gain:** Average yards gained historically for this play/concept.
+    - **Success %:** Percentage of plays gaining 4+ yards (or more than distance to go).
+    - **Explosive %:** Percentage of plays gaining 20+ yards.
+    - **Best Concept:** The play concept with highest expected value × success probability.
+    """)
+    
     # -------------------------
     # User Inputs
     # -------------------------
     down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="winprob_down")
     dist_input = st.slider("Distance to Go", 1, 20, 5, key="winprob_distance")
     yard_input = st.slider("Yardline", -50, 50, 0, key="winprob_yardline")
-    play_type_input = st.multiselect("Play Type / Concept to Evaluate", df["concept"].unique(), default=df["concept"].unique()[:5], key="winprob_concepts")
+    play_type_input = st.multiselect(
+        "Play Type / Concept to Evaluate",
+        df["concept"].unique(),
+        default=df["concept"].unique()[:5],
+        key="winprob_concepts"
+    )
 
+    # -------------------------
     # Filter historical plays
-    hist_df = df[(df["down"]==down_input) & (df["distance"]==dist_input) & (df["yardline"]==yard_input) & (df["concept"].isin(play_type_input))]
+    # -------------------------
+    hist_df = df[
+        (df["down"] == down_input) &
+        (df["distance"] == dist_input) &
+        (df["yardline"] == yard_input) &
+        (df["concept"].isin(play_type_input))
+    ]
 
     if hist_df.empty:
-        st.warning("No historical plays for this combination. Try different inputs.")
+        st.warning("No historical plays found for this combination. Adjust inputs.")
         st.stop()
 
     # -------------------------
     # Compute Metrics
     # -------------------------
-    hist_df["success"] = hist_df["gain_loss"] >= 4
-    hist_df["explosive"] = hist_df["gain_loss"] >= 20  # change threshold if needed
+    # Success = gain >= 4 or distance
+    hist_df["success"] = hist_df["gain_loss"] >= max(4, dist_input)
+    hist_df["explosive"] = hist_df["gain_loss"] >= 20
 
     summary = hist_df.groupby("concept").agg(
-        expected_gain=("gain_loss","mean"),
-        success_pct=("success","mean"),
-        explosive_pct=("explosive","mean")
+        expected_gain=("gain_loss", "mean"),
+        success_pct=("success", "mean"),
+        explosive_pct=("explosive", "mean")
     ).reset_index()
 
-    # Rank best play
-    summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]  # simple EV metric
+    # Ranking formula: expected gain × success %
+    summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
     best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
 
     # -------------------------
     # Display Metrics Cards
     # -------------------------
-    c1,c2,c3,c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
     c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
 
     # -------------------------
-    # Plot Comparisons
+    # Plot: Expected Gain vs Success %
     # -------------------------
     fig_summary = px.bar(
         summary.sort_values("expected_gain"),
@@ -264,9 +287,21 @@ with tab8:
         orientation="h",
         color="success_pct",
         color_continuous_scale="Blues",
-        labels={"expected_gain":"Expected Gain","concept":"Play Concept","success_pct":"Success %"},
         text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
+        labels={"expected_gain":"Expected Gain (yards)", "concept":"Play Concept", "success_pct":"Success %"},
         title="Play Comparison: Expected Gain vs Success %",
         template="plotly_dark"
     )
+    fig_summary.update_layout(yaxis=dict(dtick=1))  # make concepts evenly spaced
     st.plotly_chart(fig_summary, use_container_width=True)
+
+    # -------------------------
+    # Optional Table for Coaches
+    # -------------------------
+    st.markdown('<div class="section-header">Detailed Play Stats</div>', unsafe_allow_html=True)
+    summary_display = summary.copy()
+    summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
+    summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
+    summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
+    summary_display = summary_display.sort_values("rank_score", ascending=False)
+    st.dataframe(summary_display[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
