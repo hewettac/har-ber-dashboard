@@ -10,19 +10,43 @@ st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
 # -------------------------
 # Custom CSS (Dark Mode)
 # -------------------------
-st.markdown("""
 <style>
-body, .main { background-color: #0d0d0d !important; color: #FFFFFF; }
-.css-1d391kg { background-color: #111111 !important; }
-h1, h2, h3 { color: #7FDBFF; }
-.section-header { background-color: #0A2342; padding: 10px; border-radius: 5px; color: #FFFFFF; font-weight: bold; }
-.metric-card { background-color: #0A2342; padding: 10px; border-radius: 5px; text-align:center; color:white; box-shadow:0px 4px 12px rgba(0,0,0,0.4); transition: transform 0.2s; }
-.metric-card:hover { transform: scale(1.05); }
-.metric-number { font-size:30px; font-weight:bold; color:#7FDBFF; }
-.metric-label { font-size:14px; color:#AAAAAA; }
-.css-1lcbmhc.e1fqkh3o3 { background-color:#1A1A1A !important; color:#FFFFFF !important; }
+/* 
+.metric-card {
+    background-color: #0A2342;       /* card color */
+    padding: 10px 15px;               /* smaller padding top/bottom & left/right */
+    border-radius: 8px;               /* slightly smaller corners */
+    text-align: center;
+    color: white;
+    box-shadow: 0px 3px 8px rgba(0,0,0,0.4); /* slightly lighter shadow */
+    transition: transform 0.15s;      /* faster, subtle hover */
+    margin-bottom: 8px;               /* spacing below cards */
+}
+
+.metric-card:hover {
+    transform: scale(1.03);           /* small hover effect */
+}
+
+.metric-number {
+    font-size: 22px;                  /* smaller number size */
+    font-weight: 700;
+    color: #7FDBFF;                   /* highlight color */
+    margin-bottom: 4px;               /* space between number and label */
+}
+
+.metric-label {
+    font-size: 12px;                  /* smaller label */
+    color: #AAAAAA;
+    font-weight: 500;
+}
+
+/* optional: make metrics in columns evenly spaced */
+.metric-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;  /* space between stacked cards if needed */
+}
 </style>
-""", unsafe_allow_html=True)
 
 # -------------------------
 # Sidebar Logo
@@ -360,5 +384,6 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
 
