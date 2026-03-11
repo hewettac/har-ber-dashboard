@@ -278,7 +278,7 @@ if uploaded_file:
 
                 **Bubble Size:** Number of times the concept was run
 
-                The best concepts appear in the upper-right:
+                The best concepts are large and towards the right:
                 • High success rate
                 • High average gain
                 • Large sample size
@@ -346,5 +346,6 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
 
