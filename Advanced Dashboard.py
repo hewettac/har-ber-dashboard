@@ -351,19 +351,17 @@ else:
             ], 
             use_container_width=True
         )
-    
+
     # -------------------------
     # TAB 5: Play Call Advisor
     # -------------------------
     with tab5:
         st.markdown('<div class="section-header">Play Call Advisor</div>', unsafe_allow_html=True)
     
-        # User inputs
         down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="advisor_down")
         dist_input = st.slider("Distance", 1, 20, 5, key="advisor_distance")
         yard_input = st.slider("Yardline", -50, 50, 0, key="advisor_yardline")
     
-        # Filter historical plays matching situation
         advisor_df = df[
             (df["down"] == down_input) &
             (df["distance"] == dist_input) &
@@ -373,11 +371,9 @@ else:
         if advisor_df.empty:
             st.warning("No plays available for this selection.")
         else:
-            # Top concepts for situation
             top_concepts = advisor_df["concept"].value_counts().head(5).reset_index()
             top_concepts.columns = ["concept", "count"]
     
-            # Display as horizontal bar chart
             fig = px.bar(
                 top_concepts,
                 x="count",
@@ -389,7 +385,6 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
     
-            # Optional table for reference
             st.markdown('<div class="section-header">Play Data</div>', unsafe_allow_html=True)
             st.dataframe(
                 advisor_df[["concept","play_type","play_direction","gain_loss"]].sort_values("gain_loss", ascending=False),
@@ -432,19 +427,13 @@ else:
     with tab7:
         st.markdown('<div class="section-header">Opponent Play Predictor</div>', unsafe_allow_html=True)
     
-        opponent_file = st.file_uploader(
-            "Upload Opponent Hudl Excel File",
-            type=["xlsx", "xls"],
-            key="opp_upload"
-        )
-    
         if opponent_file:
             try:
                 opp_df = pd.read_excel(opponent_file)
                 opp_df.columns = opp_df.columns.str.lower().str.strip()
-                st.write("Uploaded columns:", opp_df.columns.tolist())
+                st.write("Columns in uploaded file:", opp_df.columns.tolist())
     
-                # Standardize column names
+                # Standardize columns
                 COLUMN_MAP = {
                     "down": ["down", "dn"],
                     "distance": ["dist", "togo", "yards to go", "ydstogo"],
@@ -459,7 +448,6 @@ else:
                             rename_dict[col] = standard
                 opp_df = opp_df.rename(columns=rename_dict)
     
-                # Drop missing values
                 model_df = opp_df.dropna(subset=["down", "distance", "yardline", "concept", "play_type"])
                 if model_df.empty:
                     st.warning("No usable data after cleaning. Check column names.")
@@ -516,7 +504,7 @@ else:
             except Exception as e:
                 st.error(f"Error processing opponent file: {e}")
         else:
-            st.info("Upload an opponent Excel file to train the play predictor.")
+            st.info("Upload an opponent Excel file in the sidebar to train the play predictor.")
     
     # -------------------------
     # TAB 8: Play Call Win Probability
