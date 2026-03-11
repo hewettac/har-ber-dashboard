@@ -139,16 +139,114 @@ if uploaded_file:
         gain_fig = px.bar(gain_summary, x="gain_loss", y="plays", labels={"gain_loss":"Yards Gained","plays":"Number of Plays"}, title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
         st.plotly_chart(gain_fig, use_container_width=True)
 
-    # --------------------------------------------------------
-    # TAB 2: Explosive Play Analysis
-    # --------------------------------------------------------
-    with tab2:
-        st.markdown('<div class="section-header">Explosive Play Analysis</div>', unsafe_allow_html=True)
-        explosive_threshold = st.slider("Explosive Yard Threshold", 10, 50, 20, key="explosive_threshold")
-        df["explosive"] = df["gain_loss"] >= explosive_threshold
-        explosive_summary = df.groupby("yard_group")["explosive"].sum().reset_index()
-        fig_exp = px.imshow([explosive_summary["explosive"]], labels=dict(x="Yard Group", y="", color="Explosive Plays"), x=explosive_summary["yard_group"], y=[""], text_auto=True, color_continuous_scale="Blues", template="plotly_dark")
-        st.plotly_chart(fig_exp, use_container_width=True)
+# -------------------------
+# Tab: Explosive & Success Metrics
+# -------------------------
+with st.tab("Explosive & Success Metrics"):
+
+    st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    **Definitions:**  
+    - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
+    - **Success:** Plays gaining ≥ 4 yards
+    """)
+
+    # -------------------------
+    # Explosive & Success Columns
+    # -------------------------
+    df['explosive'] = df.apply(
+        lambda row: row['gain_loss'] >= 10 if row['play_type']=='Run' else row['gain_loss'] >= 20, axis=1
+    )
+    df['success'] = df['gain_loss'] >= 4
+
+    # Metric calculations
+    total_plays = len(df)
+    explosive_runs_pct = df[df['play_type']=='Run']['explosive'].mean() * 100
+    explosive_pass_pct = df[df['play_type']=='Pass']['explosive'].mean() * 100
+    success_pct = df['success'].mean() * 100
+
+    # -------------------------
+    # Display Metric Cards
+    # -------------------------
+    m1, m2, m3, m4 = st.columns(4)
+    m1.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-number">{total_plays}</div>
+        <div class="metric-label">Total Plays</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    m2.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-number">{explosive_runs_pct:.1f}%</div>
+        <div class="metric-label">Explosive Runs</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    m3.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-number">{explosive_pass_pct:.1f}%</div>
+        <div class="metric-label">Explosive Passes</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    m4.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-number">{success_pct:.1f}%</div>
+        <div class="metric-label">Overall Success %</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # -------------------------
+    # Explosive Play Aggregation
+    # -------------------------
+    run_df = df[df['play_type']=='Run'].groupby(['down','yard_group']).agg(
+        explosive_pct=('explosive','mean')
+    ).reset_index()
+    run_df['explosive_pct'] *= 100  # convert to percentage
+
+    pass_df = df[df['play_type']=='Pass'].groupby(['down','yard_group']).agg(
+        explosive_pct=('explosive','mean')
+    ).reset_index()
+    pass_df['explosive_pct'] *= 100
+
+    success_df = df.groupby(['down','yard_group']).agg(
+        success_pct=('success','mean')
+    ).reset_index()
+    success_df['success_pct'] *= 100
+
+    # -------------------------
+    # Heatmap Plot Function
+    # -------------------------
+    def plot_heatmap(df_heat, value_col, title):
+        fig = px.density_heatmap(
+            df_heat,
+            x='yard_group',
+            y='down',
+            z=value_col,
+            text=df_heat[value_col].round(1).astype(str) + '%',  # show value on cells
+            color_continuous_scale='Blues',
+            labels={value_col: title,'yard_group':'Yard Group','down':'Down'},
+            template='plotly_dark',
+            title=title
+        )
+        fig.update_traces(texttemplate="%{text}", textfont_size=14)
+        fig.update_layout(yaxis={'categoryorder':'array','categoryarray':[1,2,3,4]})
+        return fig
+
+    # -------------------------
+    # Display Heatmaps
+    # -------------------------
+    st.markdown("### Explosive Plays")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(plot_heatmap(run_df, 'explosive_pct', 'Run Explosive Plays %'), use_container_width=True)
+    with c2:
+        st.plotly_chart(plot_heatmap(pass_df, 'explosive_pct', 'Pass Explosive Plays %'), use_container_width=True)
+
+    st.markdown("### Success Rate")
+    st.plotly_chart(plot_heatmap(success_df, 'success_pct', 'Success Rate %'), use_container_width=True)
 
     # --------------------------------------------------------
     # TAB 5: Play Call Advisor
