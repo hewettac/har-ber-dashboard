@@ -41,6 +41,18 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.lower().str.strip()
 
+# Opponent upload
+opponent_file = st.sidebar.file_uploader(
+    "Upload Opponent Hudl Excel File",
+    type=["xlsx","xls"],
+    key="sidebar_opp_upload"
+)
+
+if opponent_file:
+    st.sidebar.success("Opponent file uploaded ✅")
+else:
+    st.sidebar.info("Upload opponent file here")
+
     # -------------------------
     # Column Renaming
     # -------------------------
