@@ -132,75 +132,85 @@ if uploaded_file:
             color_discrete_sequence=["#7FDBFF"]
         )
         st.plotly_chart(gain_fig, use_container_width=True)
+# -------------------------
+# TAB 2: Explosive & Success Metrics (Advanced)
+# -------------------------
+with tab2:
+    st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
+    st.markdown("""
+    **Definitions:**  
+    - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
+    - **Success:** Plays gaining ≥ 4 yards
+    """)
+
+    # Explosive & Success flags
+    df['explosive'] = df.apply(
+        lambda row: row['gain_loss'] >= 10 if row['play_type']=='Run' else row['gain_loss'] >= 20, axis=1
+    )
+    df['success'] = df['gain_loss'] >= 4
+
+    # Metrics
+    total_plays = len(df)
+    explosive_runs_pct = df[df['play_type']=='Run']['explosive'].mean()*100
+    explosive_pass_pct = df[df['play_type']=='Pass']['explosive'].mean()*100
+    success_pct = df['success'].mean()*100
+
+    # Metric Cards
+    m1,m2,m3,m4 = st.columns(4)
+    m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
+    m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
+    m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
+    m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
 
     # -------------------------
-    # TAB 2: Explosive & Success Metrics
+    # Aggregation for Heatmaps
     # -------------------------
-    with tab2:
-        st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
-        st.markdown("""
-        **Definitions:**  
-        - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
-        - **Success:** Plays gaining ≥ 4 yards
-        """)
+    run_df = df[df['play_type']=='Run'].groupby(['down','yard_group'])['explosive'].mean().reset_index()
+    run_df['explosive'] = run_df['explosive']*100
+    run_df['explosive'] = pd.to_numeric(run_df['explosive'], errors='coerce').fillna(0)
 
-        # Compute explosive and success flags
-        df['explosive'] = df.apply(lambda row: row['gain_loss'] >= 10 if row['play_type']=='Run' else row['gain_loss'] >= 20, axis=1)
-        df['success'] = df['gain_loss'] >= 4
+    pass_df = df[df['play_type']=='Pass'].groupby(['down','yard_group'])['explosive'].mean().reset_index()
+    pass_df['explosive'] = pass_df['explosive']*100
+    pass_df['explosive'] = pd.to_numeric(pass_df['explosive'], errors='coerce').fillna(0)
 
-        # Metrics
-        total_plays = len(df)
-        explosive_runs_pct = df[df['play_type']=='Run']['explosive'].mean()*100
-        explosive_pass_pct = df[df['play_type']=='Pass']['explosive'].mean()*100
-        success_pct = df['success'].mean()*100
+    success_df = df.groupby(['down','yard_group'])['success'].mean().reset_index()
+    success_df['success'] = success_df['success']*100
+    success_df['success'] = pd.to_numeric(success_df['success'], errors='coerce').fillna(0)
 
-        # Metric Cards
-        m1,m2,m3,m4 = st.columns(4)
-        m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
-        m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
-        m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
-        m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
+    # Ensure down is categorical for consistent ordering
+    down_order = sorted(df['down'].dropna().unique())
+    for df_heat in [run_df, pass_df, success_df]:
+        df_heat['down'] = pd.Categorical(df_heat['down'], categories=down_order)
 
-        # Aggregate for heatmaps
-        run_df = df[df['play_type']=='Run'].groupby(['down','yard_group'])['explosive'].mean().reset_index()
-        run_df['explosive'] *= 100
-        run_df['explosive'] = pd.to_numeric(run_df['explosive'], errors='coerce').fillna(0)
+    # Heatmap function
+    def plot_heatmap(df_heat, val_col, title):
+        fig = px.density_heatmap(
+            df_heat,
+            x='yard_group',
+            y='down',
+            z=val_col,
+            text=df_heat[val_col].round(1).astype(str)+'%',
+            color_continuous_scale='Blues',
+            labels={val_col:title,'yard_group':'Yard Group','down':'Down'},
+            template='plotly_dark',
+            title=title
+        )
+        fig.update_traces(texttemplate="%{text}", textfont_size=14)
+        fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
+        return fig
 
-        pass_df = df[df['play_type']=='Pass'].groupby(['down','yard_group'])['explosive'].mean().reset_index()
-        pass_df['explosive'] *= 100
-        pass_df['explosive'] = pd.to_numeric(pass_df['explosive'], errors='coerce').fillna(0)
+    # -------------------------
+    # Display Heatmaps
+    # -------------------------
+    st.markdown("### Explosive Plays: Run vs Pass")
+    c1,c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(plot_heatmap(run_df, 'explosive', 'Run Explosive Plays %'), use_container_width=True)
+    with c2:
+        st.plotly_chart(plot_heatmap(pass_df, 'explosive', 'Pass Explosive Plays %'), use_container_width=True)
 
-        success_df = df.groupby(['down','yard_group'])['success'].mean().reset_index()
-        success_df['success'] *= 100
-        success_df['success'] = pd.to_numeric(success_df['success'], errors='coerce').fillna(0)
-
-        # Ensure down is categorical for heatmap
-        for df_heat in [run_df, pass_df, success_df]:
-            df_heat['down'] = pd.Categorical(df_heat['down'], categories=sorted(df['down'].dropna().unique()))
-
-        # Heatmap function
-        def plot_heatmap(df_heat, val_col, title):
-            fig = px.density_heatmap(
-                df_heat,
-                x='yard_group',
-                y='down',
-                z=val_col,
-                text=df_heat[val_col].round(1).astype(str)+'%',
-                color_continuous_scale='Blues',
-                labels={val_col:title,'yard_group':'Yard Group','down':'Down'},
-                template='plotly_dark',
-                title=title
-            )
-            fig.update_traces(texttemplate="%{text}", textfont_size=14)
-            return fig
-
-        st.markdown("### Explosive Plays")
-        c1,c2 = st.columns(2)
-        c1.plotly_chart(plot_heatmap(run_df,'explosive','Run Explosive Plays %'), use_container_width=True)
-        c2.plotly_chart(plot_heatmap(pass_df,'explosive','Pass Explosive Plays %'), use_container_width=True)
-
-        st.markdown("### Success Rate")
-        st.plotly_chart(plot_heatmap(success_df,'success','Success Rate %'), use_container_width=True)
+    st.markdown("### Success Rate Heatmap")
+    st.plotly_chart(plot_heatmap(success_df, 'success', 'Success Rate %'), use_container_width=True)
 
     # -------------------------
     # TAB 5: Play Call Advisor
