@@ -117,9 +117,15 @@ if uploaded_file:
         st.stop()
 
     # -------------------------
-    # Tabs
+    # Setup tabs
     # -------------------------
-    tab1, tab2 = st.tabs(["Filtered by Down/Yardline", "Entire Dataset"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Filtered by Down/Yardline",
+        "Entire Dataset",
+        "Success Heatmaps",
+        "Concept Effectiveness",
+        "Play Prediction"
+    ])
 
     # -------------------------
     # Tab 1
@@ -201,3 +207,100 @@ if uploaded_file:
         r2c1, r2c2 = st.columns(2)
         r2c1.plotly_chart(run_pass_fig_all, use_container_width=True)
         r2c2.plotly_chart(concept_pie_fig_all, use_container_width=True)
+
+
+    # --------------
+    # Tab 3
+    # --------------
+
+    with tab3:
+
+        st.markdown("### Play Success Heatmap")
+
+        df["success"] = df["gain_loss"] >= 4
+
+        success_rate = (
+            df.groupby(["down", "yard_group"])["success"]
+            .mean()
+            .reset_index()
+        )
+
+        heatmap = px.density_heatmap(
+            success_rate,
+            x="yard_group",
+            y="down",
+            z="success",
+            color_continuous_scale="Blues",
+            title="Success Rate by Down & Field Position"
+        )
+
+        st.plotly_chart(heatmap, use_container_width=True)
+
+    # --------------
+    # Tab 4
+    # --------------
+        with tab4:
+            st.markdown("### Concept Effectiveness")
+
+            concept_stats = (
+                df.groupby("concept")
+                .agg(
+                    avg_gain=("gain_loss", "mean"),
+                    success_rate=("gain_loss", lambda x: (x >= 4).mean()),
+                    plays=("gain_loss", "count")
+                )
+                .reset_index()
+            )
+
+            concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
+
+            bubble = px.scatter(
+                concept_stats,
+                x="success_rate",
+                y="avg_gain",
+                size="plays",
+                hover_name="concept",
+                title="Concept Effectiveness",
+                template="plotly_dark"
+            )
+
+            st.plotly_chart(bubble, use_container_width=True)
+
+            st.dataframe(concept_stats)
+    # --------------
+    # Tab 5
+    # --------------
+
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import LabelEncoder
+
+    with tab5:
+
+        st.markdown("### Run / Pass Prediction")
+
+        model_df = df.dropna(subset=["down", "distance", "yardline", "play_type"])
+
+        le = LabelEncoder()
+        model_df["play_type_encoded"] = le.fit_transform(model_df["play_type"])
+
+        X = model_df[["down", "distance", "yardline"]]
+        y = model_df["play_type_encoded"]
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        model = RandomForestClassifier()
+        model.fit(X_train, y_train)
+
+        st.markdown("### Predict Play Type")
+
+        pred_down = st.selectbox("Down", sorted(df["down"].unique()))
+        pred_dist = st.number_input("Distance", 1, 20, 5)
+        pred_yard = st.slider("Yardline", -50, 50, 0)
+
+        prediction = model.predict([[pred_down, pred_dist, pred_yard]])
+        predicted_play = le.inverse_transform(prediction)[0]
+
+        st.metric("Predicted Play Type", predicted_play)
