@@ -198,116 +198,348 @@ if uploaded_file:
         st.plotly_chart(plot_heatmap(success_df, 'success', 'Success Rate %'), use_container_width=True)
 
 
-# -------------------------
-# TAB 3: Opponent Comparison
-# -------------------------
-with tab3:
-    st.markdown('<div class="section-header">Opponent Comparison</div>', unsafe_allow_html=True)
+    # -------------------------
+    # TAB 3: Opponent Comparison
+    # -------------------------
+    with tab3:
+        st.markdown('<div class="section-header">Opponent Comparison</div>', unsafe_allow_html=True)
+        
+        # Select opponent
+        opponents = df['opponent'].dropna().unique() if 'opponent' in df.columns else []
+        if len(opponents) > 0:
+            opp_choice = st.selectbox("Select Opponent", opponents, key="opp_compare")
+            opp_df = df[df['opponent'] == opp_choice]
+        else:
+            st.info("No opponent column found; using all plays for comparison.")
+            opp_df = df.copy()
+        
+        # Play type percentages
+        play_type_pct = opp_df['play_type'].value_counts(normalize=True).reset_index()
+        play_type_pct.columns = ['play_type','pct']
+        play_type_pct['pct'] *= 100
+        
+        fig = px.pie(
+            play_type_pct,
+            names='play_type',
+            values='pct',
+            title=f"Play Type Distribution vs {opp_choice}" if len(opponents) > 0 else "Play Type Distribution",
+            color_discrete_sequence=px.colors.sequential.Blues
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Gain/Loss comparison heatmap
+        summary = opp_df.groupby(['down','yard_group'])['gain_loss'].mean().reset_index()
+        summary['gain_loss'] = summary['gain_loss'].round(1)
+        
+        fig_heat = px.density_heatmap(
+            summary, x='yard_group', y='down', z='gain_loss',
+            text=summary['gain_loss'].astype(str),
+            color_continuous_scale='Blues',
+            labels={'gain_loss':'Avg Gain','yard_group':'Yard Group','down':'Down'},
+            template='plotly_dark',
+            title="Average Gain / Loss by Down & Yard Group"
+        )
+        fig_heat.update_traces(texttemplate="%{text}", textfont_size=14)
+        fig_heat.update_layout(yaxis={'categoryorder':'array','categoryarray':sorted(df['down'].dropna().unique())})
+        st.plotly_chart(fig_heat, use_container_width=True)
     
-    # Select opponent
-    opponents = df['opponent'].dropna().unique() if 'opponent' in df.columns else []
-    if len(opponents) > 0:
-        opp_choice = st.selectbox("Select Opponent", opponents, key="opp_compare")
-        opp_df = df[df['opponent'] == opp_choice]
-    else:
-        st.info("No opponent column found; using all plays for comparison.")
-        opp_df = df.copy()
     
-    # Play type percentages
-    play_type_pct = opp_df['play_type'].value_counts(normalize=True).reset_index()
-    play_type_pct.columns = ['play_type','pct']
-    play_type_pct['pct'] *= 100
     
-    fig = px.pie(
-        play_type_pct,
-        names='play_type',
-        values='pct',
-        title=f"Play Type Distribution vs {opp_choice}" if len(opponents) > 0 else "Play Type Distribution",
-        color_discrete_sequence=px.colors.sequential.Blues
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    # -------------------------
+    # TAB 4: Best Play Call
+    # -------------------------
+    with tab4:
+        st.markdown('<div class="section-header">Best Play Call</div>', unsafe_allow_html=True)
+        
+        # User selects situation
+        down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="best_down")
+        dist_input = st.slider("Distance to Go", 1, 20, 5, key="best_distance")
+        yard_input = st.slider("Yardline", -50, 50, 0, key="best_yardline")
+        
+        # Filter historical plays
+        hist_df = df[
+            (df["down"] == down_input) &
+            (df["distance"] == dist_input) &
+            (df["yardline"] == yard_input)
+        ]
+        
+        if hist_df.empty:
+            st.warning("No historical plays found for this situation.")
+            st.stop()
+        
+        # Calculate metrics
+        hist_df['success'] = hist_df['gain_loss'] >= max(4, dist_input)
+        hist_df['explosive'] = hist_df.apply(lambda row: row['gain_loss'] >= 10 if row['play_type']=='Run' else row['gain_loss'] >= 20, axis=1)
+        
+        summary = hist_df.groupby("concept").agg(
+            expected_gain=("gain_loss","mean"),
+            success_pct=("success","mean"),
+            explosive_pct=("explosive","mean")
+        ).reset_index()
+        summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
+        
+        # Best play
+        best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
+        
+        # Metric cards
+        c1,c2,c3,c4 = st.columns(4)
+        c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
+        
+        # Bar chart: Expected Gain vs Success %
+        fig = px.bar(
+            summary.sort_values("expected_gain"),
+            x="expected_gain",
+            y="concept",
+            orientation="h",
+            color="success_pct",
+            color_continuous_scale="Blues",
+            text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
+            labels={"expected_gain":"Expected Gain (yards)","concept":"Play Concept","success_pct":"Success %"},
+            template="plotly_dark",
+            title="Comparison of Play Concepts"
+        )
+        fig.update_layout(yaxis=dict(dtick=1))
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Optional detailed table
+        st.markdown('<div class="section-header">Detailed Stats</div>', unsafe_allow_html=True)
+        summary_display = summary.copy()
+        summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
+        summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
+        summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
+        st.dataframe(summary_display.sort_values("rank_score", ascending=False)[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
     
-    # Gain/Loss comparison heatmap
-    summary = opp_df.groupby(['down','yard_group'])['gain_loss'].mean().reset_index()
-    summary['gain_loss'] = summary['gain_loss'].round(1)
     
-    fig_heat = px.density_heatmap(
-        summary, x='yard_group', y='down', z='gain_loss',
-        text=summary['gain_loss'].astype(str),
-        color_continuous_scale='Blues',
-        labels={'gain_loss':'Avg Gain','yard_group':'Yard Group','down':'Down'},
-        template='plotly_dark',
-        title="Average Gain / Loss by Down & Yard Group"
-    )
-    fig_heat.update_traces(texttemplate="%{text}", textfont_size=14)
-    fig_heat.update_layout(yaxis={'categoryorder':'array','categoryarray':sorted(df['down'].dropna().unique())})
-    st.plotly_chart(fig_heat, use_container_width=True)
-
-
-
-# -------------------------
-# TAB 4: Best Play Call
-# -------------------------
-with tab4:
-    st.markdown('<div class="section-header">Best Play Call</div>', unsafe_allow_html=True)
+    # -------------------------
+    # TAB 5: Play Call Advisor
+    # -------------------------
+    with tab5:
+        st.markdown('<div class="section-header">Play Call Advisor</div>', unsafe_allow_html=True)
+        
+        # User inputs
+        down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="advisor_down")
+        dist_input = st.slider("Distance", 1, 20, 5, key="advisor_distance")
+        yard_input = st.slider("Yardline", -50, 50, 0, key="advisor_yardline")
+        
+        # Filter historical plays matching situation
+        advisor_df = df[
+            (df["down"] == down_input) &
+            (df["distance"] == dist_input) &
+            (df["yardline"] == yard_input)
+        ]
+        
+        if advisor_df.empty:
+            st.warning("No plays available for this selection.")
+            st.stop()
+        
+        # Top concepts for situation
+        top_concepts = advisor_df["concept"].value_counts().head(5).reset_index()
+        top_concepts.columns = ["concept","count"]
+        
+        # Display as bar chart
+        fig = px.bar(
+            top_concepts,
+            x="count",
+            y="concept",
+            orientation="h",
+            color_discrete_sequence=["#7FDBFF"],
+            template="plotly_dark",
+            title="Top Concepts for This Situation"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Optional table for reference
+        st.markdown('<div class="section-header">Play Data</div>', unsafe_allow_html=True)
+        st.dataframe(advisor_df[["concept","play_type","play_direction","gain_loss"]].sort_values("gain_loss", ascending=False), use_container_width=True)
     
-    # User selects situation
-    down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="best_down")
-    dist_input = st.slider("Distance to Go", 1, 20, 5, key="best_distance")
-    yard_input = st.slider("Yardline", -50, 50, 0, key="best_yardline")
     
-    # Filter historical plays
-    hist_df = df[
-        (df["down"] == down_input) &
-        (df["distance"] == dist_input) &
-        (df["yardline"] == yard_input)
-    ]
+    # -------------------------
+    # TAB 6: Defensive Tendencies
+    # -------------------------
+    with tab6:
+        st.markdown('<div class="section-header">Defensive Tendencies</div>', unsafe_allow_html=True)
+        
+        # User inputs
+        down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="defense_down")
+        yard_input = st.slider("Yardline", -50, 50, 0, key="defense_yardline")
+        
+        # Filter plays by down and yardline
+        defense_df = df[(df["down"] == down_input) & (df["yardline"] == yard_input)]
+        
+        if defense_df.empty:
+            st.warning("No plays for this selection.")
+            st.stop()
+        
+        # Calculate defensive tendencies: distribution of play type vs. concept
+        defense_summary = defense_df.groupby(["play_type","concept"]).size().reset_index(name="count")
+        
+        # Pivot table for heatmap
+        pivot_df = defense_summary.pivot(index="play_type", columns="concept", values="count").fillna(0)
+        
+        # Heatmap
+        fig = px.imshow(
+            pivot_df,
+            text_auto=True,
+            color_continuous_scale="Blues",
+            labels={"x":"Play Concept", "y":"Play Type", "color":"Count"},
+            title="Defensive Tendencies Heatmap",
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Optional table
+        st.markdown('<div class="section-header">Raw Play Counts</div>', unsafe_allow_html=True)
+        st.dataframe(defense_summary.sort_values("count", ascending=False), use_container_width=True)
     
-    if hist_df.empty:
-        st.warning("No historical plays found for this situation.")
-        st.stop()
     
-    # Calculate metrics
-    hist_df['success'] = hist_df['gain_loss'] >= max(4, dist_input)
-    hist_df['explosive'] = hist_df.apply(lambda row: row['gain_loss'] >= 10 if row['play_type']=='Run' else row['gain_loss'] >= 20, axis=1)
+    # -------------------------
+    # TAB 7: Opponent Play Predictor
+    # -------------------------
+    with tab7:
+        st.markdown('<div class="section-header">Opponent Play Predictor</div>', unsafe_allow_html=True)
+        
+        # Prepare model data
+        model_df = df.dropna(subset=["down","distance","yardline","concept","play_type"])
+        X = model_df[["down","distance","yardline"]]
+        y_concept = model_df["concept"]
+        y_type = model_df["play_type"]
+        
+        # Train models
+        concept_model = RandomForestClassifier(n_estimators=200, random_state=42)
+        type_model = RandomForestClassifier(n_estimators=200, random_state=42)
+        concept_model.fit(X, y_concept)
+        type_model.fit(X, y_type)
+        
+        # User inputs
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="predictor_down")
+        with c2:
+            dist_input = st.slider("Distance", 1, 20, 5, key="predictor_distance")
+        with c3:
+            yard_input = st.slider("Yardline", -50, 50, 0, key="predictor_yardline")
+        
+        # Predict
+        pred_df = pd.DataFrame({"down":[down_input], "distance":[dist_input], "yardline":[yard_input]})
+        
+        concept_probs = concept_model.predict_proba(pred_df)[0]
+        concept_names = concept_model.classes_
+        type_probs = type_model.predict_proba(pred_df)[0]
+        type_names = type_model.classes_
+        
+        type_results = dict(zip(type_names, type_probs))
+        run_prob = type_results.get("Run",0)*100
+        pass_prob = type_results.get("Pass",0)*100
+        
+        concept_df = pd.DataFrame({"concept":concept_names,"prob":concept_probs}).sort_values("prob", ascending=False)
+        top3 = concept_df.head(3)
+        
+        # Display probabilities
+        c1, c2 = st.columns(2)
+        c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(run_prob,1)}%</div><div class="metric-label">Run Probability</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(pass_prob,1)}%</div><div class="metric-label">Pass Probability</div></div>', unsafe_allow_html=True)
+        
+        # Top concepts chart
+        fig = px.bar(top3, x="prob", y="concept", orientation="h", color_discrete_sequence=["#7FDBFF"], template="plotly_dark", title="Top 3 Predicted Plays")
+        st.plotly_chart(fig, use_container_width=True)
     
-    summary = hist_df.groupby("concept").agg(
-        expected_gain=("gain_loss","mean"),
-        success_pct=("success","mean"),
-        explosive_pct=("explosive","mean")
-    ).reset_index()
-    summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
     
-    # Best play
-    best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
-    
-    # Metric cards
-    c1,c2,c3,c4 = st.columns(4)
-    c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
-    
-    # Bar chart: Expected Gain vs Success %
-    fig = px.bar(
-        summary.sort_values("expected_gain"),
-        x="expected_gain",
-        y="concept",
-        orientation="h",
-        color="success_pct",
-        color_continuous_scale="Blues",
-        text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
-        labels={"expected_gain":"Expected Gain (yards)","concept":"Play Concept","success_pct":"Success %"},
-        template="plotly_dark",
-        title="Comparison of Play Concepts"
-    )
-    fig.update_layout(yaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Optional detailed table
-    st.markdown('<div class="section-header">Detailed Stats</div>', unsafe_allow_html=True)
-    summary_display = summary.copy()
-    summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
-    summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
-    summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
-    st.dataframe(summary_display.sort_values("rank_score", ascending=False)[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
+    # -------------------------
+    # TAB 8: Play Call Win Probability
+    # -------------------------
+    with tab8:
+        st.markdown('<div class="section-header">Play Call Win Probability</div>', unsafe_allow_html=True)
+        
+        # -------------------------
+        # Info / Explanation
+        # -------------------------
+        st.info("""
+        **How to read this tab:**
+        - **Expected Gain:** Average yards gained historically for this play/concept.
+        - **Success %:** Percentage of plays gaining ≥ 4 yards or distance to go.
+        - **Explosive %:** Percentage of plays gaining 20+ yards.
+        - **Best Concept:** Concept with highest Expected Gain × Success %.
+        """)
+        
+        # -------------------------
+        # User Inputs
+        # -------------------------
+        down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="winprob_down")
+        dist_input = st.slider("Distance to Go", 1, 20, 5, key="winprob_distance")
+        yard_input = st.slider("Yardline", -50, 50, 0, key="winprob_yardline")
+        play_type_input = st.multiselect(
+            "Play Concepts to Evaluate",
+            df["concept"].unique(),
+            default=df["concept"].unique()[:5],
+            key="winprob_concepts"
+        )
+        
+        # -------------------------
+        # Filter historical plays
+        # -------------------------
+        hist_df = df[
+            (df["down"] == down_input) &
+            (df["distance"] == dist_input) &
+            (df["yardline"] == yard_input) &
+            (df["concept"].isin(play_type_input))
+        ]
+        
+        if hist_df.empty:
+            st.warning("No historical plays found for this combination. Adjust inputs.")
+            st.stop()
+        
+        # -------------------------
+        # Compute metrics
+        # -------------------------
+        hist_df["success"] = hist_df["gain_loss"] >= max(4, dist_input)
+        hist_df["explosive"] = hist_df["gain_loss"] >= 20
+        
+        summary = hist_df.groupby("concept").agg(
+            expected_gain=("gain_loss", "mean"),
+            success_pct=("success", "mean"),
+            explosive_pct=("explosive", "mean")
+        ).reset_index()
+        
+        summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
+        best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
+        
+        # -------------------------
+        # Display Metrics Cards
+        # -------------------------
+        c1, c2, c3, c4 = st.columns(4)
+        c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
+        
+        # -------------------------
+        # Plot: Expected Gain vs Success %
+        # -------------------------
+        fig_summary = px.bar(
+            summary.sort_values("expected_gain"),
+            x="expected_gain",
+            y="concept",
+            orientation="h",
+            color="success_pct",
+            color_continuous_scale="Blues",
+            text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
+            labels={"expected_gain":"Expected Gain (yards)", "concept":"Play Concept", "success_pct":"Success %"},
+            title="Play Comparison: Expected Gain vs Success %",
+            template="plotly_dark"
+        )
+        fig_summary.update_layout(yaxis=dict(dtick=1))
+        st.plotly_chart(fig_summary, use_container_width=True)
+        
+        # -------------------------
+        # Optional Table
+        # -------------------------
+        st.markdown('<div class="section-header">Detailed Play Stats</div>', unsafe_allow_html=True)
+        summary_display = summary.copy()
+        summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
+        summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
+        summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
+        summary_display = summary_display.sort_values("rank_score", ascending=False)
+        st.dataframe(summary_display[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
