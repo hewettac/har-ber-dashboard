@@ -146,59 +146,64 @@ if uploaded_file:
         - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
         - **Success:** Plays gaining ≥ 4 yards
         """)
-
-        # Safe explosive calculation
-        df['explosive'] = df.apply(
-            lambda row: (row['gain_loss'] >= 10 if row['play_type'] == 'Run'
-                         else (row['gain_loss'] >= 20 if row['play_type'] == 'Pass' else False)),
-            axis=1
+    
+        # Add explosive & success flags
+        df.loc[:, 'explosive'] = df.apply(
+            lambda row: row['gain_loss'] >= 10 if row['play_type'] == 'Run' else row['gain_loss'] >= 20, axis=1
         )
-        df['success'] = df['gain_loss'] >= 4
-
+        df.loc[:, 'success'] = df['gain_loss'] >= 4
+    
+        # Metrics
         total_plays = len(df)
-        explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() * 100 if 'Run' in df['play_type'].unique() else 0
-        explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() * 100 if 'Pass' in df['play_type'].unique() else 0
+        explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() * 100
+        explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() * 100
         success_pct = df['success'].mean() * 100
-
+    
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
         m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
         m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
         m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
-
-        # Heatmaps
+    
+        # -------------------------
+        # Prepare heatmaps
+        # -------------------------
         run_df = df[df['play_type'] == 'Run'].groupby(['down', 'yard_group'])['explosive'].mean().reset_index()
-        run_df['explosive'] *= 100
         pass_df = df[df['play_type'] == 'Pass'].groupby(['down', 'yard_group'])['explosive'].mean().reset_index()
-        pass_df['explosive'] *= 100
         success_df = df.groupby(['down', 'yard_group'])['success'].mean().reset_index()
-        success_df['success'] *= 100
-
+    
+        # Convert to numeric and fill NaNs
+        run_df['explosive'] = pd.to_numeric(run_df['explosive'], errors='coerce').fillna(0) * 100
+        pass_df['explosive'] = pd.to_numeric(pass_df['explosive'], errors='coerce').fillna(0) * 100
+        success_df['success'] = pd.to_numeric(success_df['success'], errors='coerce').fillna(0) * 100
+    
         down_order = sorted(df['down'].dropna().unique())
-        for df_heat in [run_df, pass_df, success_df]:
-            df_heat['down'] = pd.Categorical(df_heat['down'], categories=down_order)
-
+    
+        # Heatmap function using pivot + px.imshow
         def plot_heatmap(df_heat, val_col, title):
-            fig = px.density_heatmap(
-                df_heat, x='yard_group', y='down', z=val_col,
-                text=df_heat[val_col].round(1).astype(str) + '%',
+            pivot = df_heat.pivot(index='down', columns='yard_group', values=val_col).fillna(0)
+            fig = px.imshow(
+                pivot,
+                text_auto=True,
                 color_continuous_scale='Blues',
-                labels={val_col: title, 'yard_group': 'Yard Group', 'down': 'Down'},
-                template='plotly_dark', title=title
+                labels={'x': 'Yard Group', 'y': 'Down', 'color': title},
+                template='plotly_dark',
+                title=title
             )
-            fig.update_traces(texttemplate="%{text}", textfont_size=14)
-            fig.update_layout(yaxis={'categoryorder': 'array', 'categoryarray': down_order})
+            fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
             return fig
-
+    
+        # Display heatmaps
         st.markdown("### Explosive Plays")
         c1, c2 = st.columns(2)
         with c1:
             st.plotly_chart(plot_heatmap(run_df, 'explosive', 'Run Explosive Plays %'), use_container_width=True)
         with c2:
             st.plotly_chart(plot_heatmap(pass_df, 'explosive', 'Pass Explosive Plays %'), use_container_width=True)
+    
         st.markdown("### Success Rate")
         st.plotly_chart(plot_heatmap(success_df, 'success', 'Success Rate %'), use_container_width=True)
-            # -------------------------
+       # -------------------------
     # TAB 3: Opponent Comparison
     # -------------------------
     with tab3:
@@ -212,37 +217,38 @@ if uploaded_file:
         else:
             st.info("No opponent column found; using all plays for comparison.")
             opp_df = df.copy()
+            opp_choice = "All Plays"
     
         # Play type percentages
         play_type_pct = opp_df['play_type'].value_counts(normalize=True).reset_index()
         play_type_pct.columns = ['play_type', 'pct']
         play_type_pct['pct'] *= 100
     
-        title = f"Play Type Distribution vs {opp_choice}" if len(opponents) > 0 else "Play Type Distribution"
         fig = px.pie(
             play_type_pct,
             names='play_type',
             values='pct',
-            title=title,
+            title=f"Play Type Distribution vs {opp_choice}",
             color_discrete_sequence=px.colors.sequential.Blues
         )
         st.plotly_chart(fig, use_container_width=True)
     
-        # Gain/Loss heatmap
+        # Gain/Loss comparison heatmap
         summary = opp_df.groupby(['down', 'yard_group'])['gain_loss'].mean().reset_index()
-        summary['gain_loss'] = summary['gain_loss'].round(1)
-        fig_heat = px.density_heatmap(
-            summary, x='yard_group', y='down', z='gain_loss',
-            text=summary['gain_loss'].astype(str),
+        summary['gain_loss'] = pd.to_numeric(summary['gain_loss'], errors='coerce').fillna(0).round(1)
+    
+        # Pivot and plot using px.imshow
+        pivot = summary.pivot(index='down', columns='yard_group', values='gain_loss').fillna(0)
+        fig_heat = px.imshow(
+            pivot,
+            text_auto=True,
             color_continuous_scale='Blues',
-            labels={'gain_loss': 'Avg Gain', 'yard_group': 'Yard Group', 'down': 'Down'},
+            labels={'x': 'Yard Group', 'y': 'Down', 'color': 'Avg Gain'},
             template='plotly_dark',
             title="Average Gain / Loss by Down & Yard Group"
         )
-        fig_heat.update_traces(texttemplate="%{text}", textfont_size=14)
         fig_heat.update_layout(yaxis={'categoryorder': 'array', 'categoryarray': sorted(df['down'].dropna().unique())})
         st.plotly_chart(fig_heat, use_container_width=True)
-    
     # -------------------------
     # TAB 4: Best Play Call
     # -------------------------
