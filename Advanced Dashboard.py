@@ -51,6 +51,13 @@ h1, h2, h3 { color: #7FDBFF; }
 """, unsafe_allow_html=True)
 
 # -------------------------
+# Sidebar Logo
+# -------------------------
+st.sidebar.markdown('<div style="text-align:center; margin-bottom:20px;">', unsafe_allow_html=True)
+st.sidebar.image("logo_har-ber-high-school.png", width=150)
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
+# -------------------------
 # Sidebar Upload
 # -------------------------
 st.sidebar.title("Har-Ber Advanced Dashboard")
