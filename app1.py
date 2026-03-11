@@ -217,6 +217,22 @@ if uploaded_file:
 
         st.markdown("### Play Success Heatmap")
 
+        with tab3:
+            st.markdown("### Play Success Heatmap")
+
+            with st.expander("How to read this chart"):
+                st.write("""
+                This heatmap shows the **success rate of plays by down and field position**.
+
+                - Darker blue = higher success rate
+                - Lighter blue = lower success rate
+                - Success is defined as gaining **4 or more yards on a play**
+
+                Coaches can use this to identify **field zones where the offense is most efficient**.
+                """)
+
+
+
         df["success"] = df["gain_loss"] >= 4
 
         success_rate = (
@@ -237,10 +253,26 @@ if uploaded_file:
         st.plotly_chart(heatmap, use_container_width=True)
 
     # --------------
-    # Tab 4
+    # Tab 4 - Concept Effectiveness
     # --------------
         with tab4:
             st.markdown("### Concept Effectiveness")
+
+            with st.expander("How to read this chart"):
+                st.write("""
+                This chart evaluates offensive concepts using three metrics:
+
+                **X-axis:** Success Rate (% of plays gaining 4+ yards)
+
+                **Y-axis:** Average yards gained per play
+
+                **Bubble Size:** Number of times the concept was run
+
+                The best concepts appear in the upper-right:
+                • High success rate
+                • High average gain
+                • Large sample size
+                """)
 
             concept_stats = (
                 df.groupby("concept")
