@@ -422,74 +422,126 @@ if uploaded_file:
         # Optional raw table
         st.markdown('<div class="section-header">Raw Play Counts</div>', unsafe_allow_html=True)
         st.dataframe(defense_summary.sort_values("count", ascending=False), use_container_width=True)
-    
+        
     # -------------------------
     # TAB 7: Opponent Play Predictor
     # -------------------------
     with tab7:
         st.markdown('<div class="section-header">Opponent Play Predictor</div>', unsafe_allow_html=True)
     
-        # Prepare model data
-        model_df = df.dropna(subset=["down", "distance", "yardline", "concept", "play_type"])
-        X = model_df[["down","distance","yardline"]]
-        y_concept = model_df["concept"]
-        y_type = model_df["play_type"]
-    
-        # Train Random Forest models
-        concept_model = RandomForestClassifier(n_estimators=200, random_state=42)
-        type_model = RandomForestClassifier(n_estimators=200, random_state=42)
-        concept_model.fit(X, y_concept)
-        type_model.fit(X, y_type)
-    
-        # User inputs
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="predictor_down")
-        with c2:
-            dist_input = st.slider("Distance", 1, 20, 5, key="predictor_distance")
-        with c3:
-            yard_input = st.slider("Yardline", -50, 50, 0, key="predictor_yardline")
-    
-        # Predict probabilities
-        pred_df = pd.DataFrame({"down":[down_input],"distance":[dist_input],"yardline":[yard_input]})
-    
-        concept_probs = concept_model.predict_proba(pred_df)[0]
-        concept_names = concept_model.classes_
-        type_probs = type_model.predict_proba(pred_df)[0]
-        type_names = type_model.classes_
-    
-        # Extract run/pass probabilities
-        type_results = dict(zip(type_names, type_probs))
-        run_prob = type_results.get("Run",0)*100
-        pass_prob = type_results.get("Pass",0)*100
-    
-        # Top 3 predicted concepts
-        concept_df = pd.DataFrame({"concept":concept_names,"prob":concept_probs})
-        concept_df["prob"] = concept_df["prob"]*100
-        top3 = concept_df.sort_values("prob", ascending=False).head(3)
-    
-        # Display run/pass probabilities as metric cards
-        c1, c2 = st.columns(2)
-        c1.markdown(
-            f'<div class="metric-card"><div class="metric-number">{round(run_prob,1)}%</div><div class="metric-label">Run Probability</div></div>',
-            unsafe_allow_html=True
-        )
-        c2.markdown(
-            f'<div class="metric-card"><div class="metric-number">{round(pass_prob,1)}%</div><div class="metric-label">Pass Probability</div></div>',
-            unsafe_allow_html=True
+        # -------------------------
+        # Opponent File Upload
+        # -------------------------
+        opponent_file = st.file_uploader(
+            "Upload Opponent Hudl Excel File",
+            type=["xlsx", "xls"],
+            key="opp_upload"
         )
     
-        # Display top 3 predicted concepts
-        fig = px.bar(
-            top3,
-            x="prob",
-            y="concept",
-            orientation="h",
-            color_discrete_sequence=["#7FDBFF"],
-            template="plotly_dark",
-            title="Top 3 Predicted Plays"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if opponent_file:
+            opp_df = pd.read_excel(opponent_file)
+            opp_df.columns = opp_df.columns.str.lower().str.strip()
+    
+            # -------------------------
+            # Rename Columns to Standard
+            # -------------------------
+            COLUMN_MAP = {
+                "down": ["down", "dn"],
+                "distance": ["dist", "togo", "yards to go", "ydstogo"],
+                "yardline": ["yard ln", "spot", "ball on"],
+                "concept": ["off play"],
+                "play_type": ["play type", "playtype", "type"]
+            }
+            rename_dict = {}
+            for standard, variants in COLUMN_MAP.items():
+                for col in opp_df.columns:
+                    if col in variants:
+                        rename_dict[col] = standard
+            opp_df = opp_df.rename(columns=rename_dict)
+    
+            # -------------------------
+            # Drop missing values
+            # -------------------------
+            model_df = opp_df.dropna(subset=["down", "distance", "yardline", "concept", "play_type"])
+            X = model_df[["down", "distance", "yardline"]]
+            y_concept = model_df["concept"]
+            y_type = model_df["play_type"]
+    
+            # -------------------------
+            # Train Models
+            # -------------------------
+            concept_model = RandomForestClassifier(n_estimators=200, random_state=42)
+            type_model = RandomForestClassifier(n_estimators=200, random_state=42)
+            concept_model.fit(X, y_concept)
+            type_model.fit(X, y_type)
+    
+            st.success("Opponent model trained successfully!")
+    
+            # -------------------------
+            # User Inputs for Prediction
+            # -------------------------
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                down_input = st.selectbox(
+                    "Down",
+                    sorted(model_df["down"].dropna().unique()),
+                    key="predictor_down"
+                )
+            with c2:
+                dist_input = st.slider("Distance", 1, 20, 5, key="predictor_distance")
+            with c3:
+                yard_input = st.slider("Yardline", -50, 50, 0, key="predictor_yardline")
+    
+            # -------------------------
+            # Make Predictions
+            # -------------------------
+            pred_df = pd.DataFrame({"down": [down_input], "distance": [dist_input], "yardline": [yard_input]})
+    
+            concept_probs = concept_model.predict_proba(pred_df)[0]
+            concept_names = concept_model.classes_
+            type_probs = type_model.predict_proba(pred_df)[0]
+            type_names = type_model.classes_
+    
+            type_results = dict(zip(type_names, type_probs))
+            run_prob = type_results.get("Run", 0) * 100
+            pass_prob = type_results.get("Pass", 0) * 100
+    
+            concept_df = pd.DataFrame({
+                "concept": concept_names,
+                "prob": concept_probs * 100
+            }).sort_values("prob", ascending=False)
+    
+            top3 = concept_df.head(3)
+    
+            # -------------------------
+            # Display Metric Cards
+            # -------------------------
+            c1, c2 = st.columns(2)
+            c1.markdown(
+                f'<div class="metric-card"><div class="metric-number">{round(run_prob,1)}%</div><div class="metric-label">Run Probability</div></div>',
+                unsafe_allow_html=True
+            )
+            c2.markdown(
+                f'<div class="metric-card"><div class="metric-number">{round(pass_prob,1)}%</div><div class="metric-label">Pass Probability</div></div>',
+                unsafe_allow_html=True
+            )
+    
+            # -------------------------
+            # Top 3 Predicted Plays Chart
+            # -------------------------
+            fig = px.bar(
+                top3,
+                x="prob",
+                y="concept",
+                orientation="h",
+                color_discrete_sequence=["#7FDBFF"],
+                template="plotly_dark",
+                title="Top 3 Predicted Plays"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+        else:
+            st.info("Upload an opponent Excel file to train the play predictor.")
     
     # -------------------------
     # TAB 8: Play Call Win Probability
