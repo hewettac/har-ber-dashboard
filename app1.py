@@ -173,7 +173,7 @@ if uploaded_file:
         st.dataframe(selected, use_container_width=True)
 
     # -------------------------
-    # Tab 2
+    # Tab 2 - whole dataset
     # -------------------------
     with tab2:
         avg_gain_all = round(df["gain_loss"].mean(),1)
@@ -210,7 +210,7 @@ if uploaded_file:
 
 
     # --------------
-    # Tab 3
+    # Tab 3 - heatmap
     # --------------
 
     with tab3:
@@ -231,26 +231,37 @@ if uploaded_file:
                 Coaches can use this to identify **field zones where the offense is most efficient**.
                 """)
 
+        import plotly.express as px
 
-
+        # Make sure 'success' column exists
         df["success"] = df["gain_loss"] >= 4
 
-        success_rate = (
-            df.groupby(["down", "yard_group"])["success"]
-            .mean()
-            .reset_index()
-        )
+        # Aggregate by down and yard_group
+        heatmap_df = df.groupby(["down", "yard_group"]).agg(
+            success_rate=("success", "mean"),  # fraction of successful plays
+            num_plays=("success", "count")  # total plays in that bin
+        ).reset_index()
 
-        heatmap = px.density_heatmap(
-            success_rate,
-            x="yard_group",
-            y="down",
-            z="success",
+        # Create heatmap with hover showing both metrics
+        heatmap_fig = px.imshow(
+            heatmap_df.pivot(index="down", columns="yard_group", values="success_rate"),
+            text_auto=True,
+            aspect="auto",
+            labels=dict(x="Yard Group", y="Down", color="Success Rate"),
             color_continuous_scale="Blues",
-            title="Success Rate by Down & Field Position"
         )
 
-        st.plotly_chart(heatmap, use_container_width=True)
+        # Add custom hover
+        heatmap_fig.update_traces(
+            hovertemplate="<b>Down:</b> %{y}<br>"
+                          "<b>Yard Group:</b> %{x}<br>"
+                          "<b>Success Rate:</b> %{z:.0%}<br>"
+                          "<b>Number of Plays:</b> %{customdata}",
+            customdata=heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").values
+        )
+
+        # Show in Streamlit
+        st.plotly_chart(heatmap_fig, use_container_width=True)
 
     # --------------
     # Tab 4 - Concept Effectiveness
@@ -336,3 +347,4 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
