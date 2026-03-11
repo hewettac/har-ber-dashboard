@@ -16,7 +16,7 @@ body, .main { background-color: #0d0d0d !important; color: #FFFFFF; }
 .css-1d391kg { background-color: #111111 !important; }
 h1, h2, h3 { color: #7FDBFF; }
 .section-header { background-color: #0A2342; padding: 10px; border-radius: 5px; color: #FFFFFF; font-weight: bold; }
-.metric-card { background-color: #0A2342; padding: 15px; border-radius: 10px; text-align:center; color:white; box-shadow:0px 4px 12px rgba(0,0,0,0.4); transition: transform 0.2s; }
+.metric-card { background-color: #0A2342; padding: 10px; border-radius: 10px; text-align:center; color:white; box-shadow:0px 4px 12px rgba(0,0,0,0.4); transition: transform 0.2s; }
 .metric-card:hover { transform: scale(1.05); }
 .metric-number { font-size:30px; font-weight:bold; color:#7FDBFF; }
 .metric-label { font-size:14px; color:#AAAAAA; }
@@ -360,3 +360,4 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
