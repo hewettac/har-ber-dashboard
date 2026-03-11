@@ -7,11 +7,11 @@ import plotly.express as px
 # -------------------------
 st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
 
-# -------------------------
-# Custom CSS (Dark Mode)
-# -------------------------
+st.markdown("""
 <style>
-/* 
+/* -------------------------
+   Metric Cards (Compact)
+------------------------- */
 .metric-card {
     background-color: #0A2342;       /* card color */
     padding: 10px 15px;               /* smaller padding top/bottom & left/right */
@@ -47,7 +47,7 @@ st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
     gap: 8px;  /* space between stacked cards if needed */
 }
 </style>
-
+""", unsafe_allow_html=True)
 # -------------------------
 # Sidebar Logo
 # -------------------------
@@ -384,6 +384,7 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
+
 
 
 
