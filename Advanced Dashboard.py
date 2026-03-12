@@ -157,9 +157,9 @@ if uploaded_file:
     
     # Metrics
     total_plays = len(df)
-    explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
-    explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
-    success_pct = df['success'].mean() * 100
+    explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() if 'play_type' in df.columns else 0
+    explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() if 'play_type' in df.columns else 0
+    success_pct = df['success'].mean()
     
     m1, m2, m3, m4 = st.columns(4)
     m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
@@ -186,7 +186,7 @@ if uploaded_file:
         ).reset_index()
     
         # Pivot for heatmap values
-        pivot = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0) * 100  # convert to %
+        pivot = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0)  # convert to %
         pivot_plays = summary.pivot(index='down', columns='yard_group', values='plays').fillna(0)
         pivot_avg = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
     
