@@ -178,7 +178,7 @@ with tab2:
     df_heat: DataFrame filtered for a play type (Run/Pass) or success
     val_col: column to use for the heatmap value (explosive or success)
     title: chart title
-    """
+    ""
     # Aggregate count, mean gain, and mean value (rate)
     summary = df_heat.groupby(['down','yard_group']).agg(
         plays=('gain_loss','size'),
