@@ -174,37 +174,50 @@ with tab2:
     # Heatmap function
     # -------------------------
     def plot_heatmap_hover(df_heat, val_col, title):
-        summary = df_heat.groupby(['down','yard_group']).agg(
-            count=('gain_loss','size'),
-            avg_gain=('gain_loss','mean'),
-            value=(val_col,'mean')
-        ).reset_index()
+    """
+    df_heat: DataFrame filtered for a play type (Run/Pass) or success
+    val_col: column to use for the heatmap value (explosive or success)
+    title: chart title
+    """
+    # Aggregate count, mean gain, and mean value (rate)
+    summary = df_heat.groupby(['down','yard_group']).agg(
+        plays=('gain_loss','size'),
+        avg_gain=('gain_loss','mean'),
+        rate=(val_col,'mean')  # fraction 0-1
+    ).reset_index()
 
-        pivot = summary.pivot(index='down', columns='yard_group', values='value').fillna(0)
-        pivot_count = summary.pivot(index='down', columns='yard_group', values='count').fillna(0)
-        pivot_avg = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
+    # Pivot for heatmap values
+    pivot = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0) * 100  # convert to %
+    pivot_plays = summary.pivot(index='down', columns='yard_group', values='plays').fillna(0)
+    pivot_avg = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
 
-        hover_text = []
-        for i, down in enumerate(pivot.index):
-            row = []
-            for j, yard in enumerate(pivot.columns):
-                row.append(
-                    f"Down: {down}<br>Yard Group: {yard}<br>Plays: {pivot_count.iloc[i,j]:.0f}<br>Avg Gain: {pivot_avg.iloc[i,j]:.1f} yards"
-                )
-            hover_text.append(row)
+    # Create hover text combining all info
+    hover_text = []
+    for i, down in enumerate(pivot.index):
+        row = []
+        for j, yard in enumerate(pivot.columns):
+            row.append(
+                f"Down: {down}<br>"
+                f"Yard Group: {yard}<br>"
+                f"Plays: {pivot_plays.iloc[i,j]:.0f}<br>"
+                f"Avg Gain: {pivot_avg.iloc[i,j]:.1f} yards<br>"
+                f"{title}: {pivot.iloc[i,j]:.1f}%"
+            )
+        hover_text.append(row)
 
-        fig = px.imshow(
-            pivot,
-            text_auto=True,
-            color_continuous_scale='Blues',
-            labels={'x':'Yard Group','y':'Down','color':title},
-            template='plotly_dark',
-            title=title
-        )
-        if down_order:
-            fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-        fig.update_traces(hovertemplate=np.array(hover_text))
-        return fig
+    # Plot heatmap
+    fig = px.imshow(
+        pivot,
+        text_auto=True,
+        color_continuous_scale='Blues',
+        labels={'x':'Yard Group','y':'Down','color':title},
+        template='plotly_dark',
+        title=title
+    )
+    if down_order:
+        fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
+    fig.update_traces(hovertemplate=np.array(hover_text))
+    return fig
 
     # Prepare heatmaps
     run_df = df[df['play_type']=='Run'].copy() if 'play_type' in df.columns else pd.DataFrame()
