@@ -133,7 +133,7 @@ if uploaded_file:
                           labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
                           title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
         st.plotly_chart(gain_fig, use_container_width=True)
-
+    
     # -------------------------
     # TAB 2: Explosive & Success Metrics
     # -------------------------
@@ -163,44 +163,75 @@ if uploaded_file:
         m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
         m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
     
-        # -------------------------
-        # Prepare heatmaps
-        # -------------------------
-        run_df = df[df['play_type'] == 'Run'].groupby(['down', 'yard_group'])['explosive'].mean().reset_index()
-        pass_df = df[df['play_type'] == 'Pass'].groupby(['down', 'yard_group'])['explosive'].mean().reset_index()
-        success_df = df.groupby(['down', 'yard_group'])['success'].mean().reset_index()
-    
-        # Convert to numeric and fill NaNs
-        run_df['explosive'] = pd.to_numeric(run_df['explosive'], errors='coerce').fillna(0) * 100
-        pass_df['explosive'] = pd.to_numeric(pass_df['explosive'], errors='coerce').fillna(0) * 100
-        success_df['success'] = pd.to_numeric(success_df['success'], errors='coerce').fillna(0) * 100
-    
         down_order = sorted(df['down'].dropna().unique())
     
-        # Heatmap function using pivot + px.imshow
-        def plot_heatmap(df_heat, val_col, title):
-            pivot = df_heat.pivot(index='down', columns='yard_group', values=val_col).fillna(0)
+        # -------------------------
+        # Heatmap function with hover showing count + avg gain
+        # -------------------------
+        def plot_heatmap_hover(df_heat, val_col, title):
+            # Aggregate count and mean gain
+            summary = df_heat.groupby(['down','yard_group']).agg(
+                count=('gain_loss','size'),
+                avg_gain=('gain_loss','mean'),
+                value=(val_col,'mean')  # this is the % to color
+            ).reset_index()
+    
+            # Pivot for heatmap
+            pivot = summary.pivot(index='down', columns='yard_group', values='value').fillna(0)
+    
+            # Pivot for hover text
+            pivot_count = summary.pivot(index='down', columns='yard_group', values='count').fillna(0)
+            pivot_avg = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
+    
+            # Custom hover text
+            hover_text = []
+            for i, down in enumerate(pivot.index):
+                row = []
+                for j, yard in enumerate(pivot.columns):
+                    row.append(
+                        f"Down: {down}<br>"
+                        f"Yard Group: {yard}<br>"
+                        f"Plays: {pivot_count.iloc[i,j]:.0f}<br>"
+                        f"Avg Gain: {pivot_avg.iloc[i,j]:.1f} yards"
+                    )
+                hover_text.append(row)
+    
             fig = px.imshow(
                 pivot,
                 text_auto=True,
                 color_continuous_scale='Blues',
-                labels={'x': 'Yard Group', 'y': 'Down', 'color': title},
+                labels={'x':'Yard Group','y':'Down','color':title},
                 template='plotly_dark',
                 title=title
             )
             fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
+            fig.update_traces(hovertemplate=np.array(hover_text))
             return fig
     
+        # -------------------------
+        # Prepare heatmaps
+        # -------------------------
+        run_df = df[df['play_type'] == 'Run'].copy()
+        pass_df = df[df['play_type'] == 'Pass'].copy()
+        success_df = df.copy()
+    
+        # Convert percentages
+        run_df['explosive'] = pd.to_numeric(run_df['explosive'], errors='coerce').fillna(0) * 100
+        pass_df['explosive'] = pd.to_numeric(pass_df['explosive'], errors='coerce').fillna(0) * 100
+        success_df['success'] = pd.to_numeric(success_df['success'], errors='coerce').fillna(0) * 100
+    
+        # -------------------------
         # Display heatmaps
+        # -------------------------
         st.markdown("### Explosive Plays")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(plot_heatmap(run_df, 'explosive', 'Run Explosive Plays %'), use_container_width=True)
+            st.plotly_chart(plot_heatmap_hover(run_df, 'explosive', 'Run Explosive Plays %'), use_container_width=True)
         with c2:
-            st.plotly_chart(plot_heatmap(pass_df, 'explosive', 'Pass Explosive Plays %'), use_container_width=True)
+            st.plotly_chart(plot_heatmap_hover(pass_df, 'explosive', 'Pass Explosive Plays %'), use_container_width=True)
     
         st.markdown("### Success Rate")
-        st.plotly_chart(plot_heatmap(success_df, 'success', 'Success Rate %'), use_container_width=True)
+        st.plotly_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %'), use_container_width=True)
        # -------------------------
     # TAB 3: Opponent Comparison
     # -------------------------
