@@ -142,103 +142,100 @@ if uploaded_file:
     # -------------------------
     # TAB 2: Explosive & Success Metrics
     # -------------------------
-    st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
-    st.markdown("""
-    **Definitions:**  
-    - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
-    - **Success:** Plays gaining ≥ 4 yards
-    """)
+    with tab2:
+        st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
+        st.markdown("""
+        **Definitions:**  
+        - **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  
+        - **Success:** Plays gaining ≥ 4 yards
+        """)
     
-    # Add explosive & success flags
-    df['explosive'] = df.apply(
-        lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run' else row['gain_loss'] >= 20, axis=1
-    )
-    df['success'] = df['gain_loss'] >= 4
-    
-    # Metrics
-    total_plays = len(df)
-    explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() if 'play_type' in df.columns else 0
-    explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() if 'play_type' in df.columns else 0
-    success_pct = df['success'].mean()
-    
-    m1, m2, m3, m4 = st.columns(4)
-    m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
-    m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
-    m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
-    m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
-    
-    down_order = sorted(df['down'].dropna().unique()) if 'down' in df.columns else []
-    
-    # -------------------------
-    # Heatmap function
-    # -------------------------
-    def plot_heatmap_hover(df_heat, val_col, title):
-        """
-        df_heat: DataFrame filtered for a play type (Run/Pass) or success
-        val_col: column to use for the heatmap value (explosive or success)
-        title: chart title
-        """
-        # Aggregate count, mean gain, and mean value (rate)
-        summary = df_heat.groupby(['down','yard_group']).agg(
-            plays=('gain_loss','size'),
-            avg_gain=('gain_loss','mean'),
-            rate=(val_col,'mean')  # fraction 0-1
-        ).reset_index()
-    
-        # Pivot for heatmap values
-        pivot = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0)  # convert to %
-        pivot_plays = summary.pivot(index='down', columns='yard_group', values='plays').fillna(0)
-        pivot_avg = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
-    
-        # Create hover text combining all info
-        hover_text = []
-        for i, down in enumerate(pivot.index):
-            row = []
-            for j, yard in enumerate(pivot.columns):
-                row.append(
-                    f"Down: {down}<br>"
-                    f"Yard Group: {yard}<br>"
-                    f"Plays: {pivot_plays.iloc[i,j]:.0f}<br>"
-                    f"Avg Gain: {pivot_avg.iloc[i,j]:.1f} yards<br>"
-                    f"{title}: {pivot.iloc[i,j]:.1f}%"
-                )
-            hover_text.append(row)
-    
-        # Plot heatmap
-        fig = px.imshow(
-            pivot,
-            text_auto=True,
-            color_continuous_scale='Blues',
-            labels={'x':'Yard Group','y':'Down','color':title},
-            template='plotly_dark',
-            title=title
+        # Add explosive & success flags
+        df['explosive'] = df.apply(
+            lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run' else row['gain_loss'] >= 20, axis=1
         )
-        if down_order:
-            fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-        fig.update_traces(hovertemplate=np.array(hover_text))
-        return fig
+        df['success'] = df['gain_loss'] >= 4
     
-    # Prepare heatmaps
-    run_df = df[df['play_type']=='Run'].copy() if 'play_type' in df.columns else pd.DataFrame()
-    pass_df = df[df['play_type']=='Pass'].copy() if 'play_type' in df.columns else pd.DataFrame()
-    success_df = df.copy()
-
-
-    run_df['explosive'] = run_df['explosive'].astype(float) * 100
-    pass_df['explosive'] = pass_df['explosive'].astype(float) * 100
-    success_df['success'] = success_df['success'].astype(float) * 100
-
-    st.markdown("### Explosive Plays")
-    c1, c2 = st.columns(2)
-    with c1:
-        if not run_df.empty:
+        # Metrics cards
+        total_plays = len(df)
+        explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
+        explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
+        success_pct = df['success'].mean() * 100
+    
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
+    
+        down_order = sorted(df['down'].dropna().unique()) if 'down' in df.columns else []
+    
+        # -------------------------
+        # Heatmap function with customdata hover
+        # -------------------------
+        def plot_heatmap_hover(df_heat, val_col, title):
+            # Aggregate plays, avg_gain, and rate
+            summary = df_heat.groupby(['down','yard_group']).agg(
+                num_plays=('gain_loss','size'),
+                avg_gain=('gain_loss','mean'),
+                rate=(val_col,'mean')  # fraction 0-1
+            ).reset_index()
+    
+            # Pivot for z-values and customdata
+            z_values = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0) * 100  # % for cell text
+            customdata_df = summary.pivot(index='down', columns='yard_group', values=['num_plays','avg_gain']).fillna(0)
+            customdata_array = np.stack([customdata_df['num_plays'].values, customdata_df['avg_gain'].values], axis=-1)
+    
+            # Create heatmap
+            fig = px.imshow(
+                z_values,
+                text_auto=True,
+                aspect="auto",
+                labels={'x':'Yard Group','y':'Down','color':title},
+                color_continuous_scale='Blues',
+                template='plotly_dark',
+                title=title
+            )
+    
+            # Custom hover
+            fig.update_traces(
+                hovertemplate="<b>Down:</b> %{y}<br>"
+                              "<b>Yard Group:</b> %{x}<br>"
+                              f"<b>{title}:</b> %{z:.1f}%<br>"
+                              "<b>Number of Plays:</b> %{customdata[0]:.0f}<br>"
+                              "<b>Average Gain:</b> %{customdata[1]:.1f} yards",
+                customdata=customdata_array
+            )
+    
+            if down_order:
+                fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
+    
+            return fig
+    
+        # -------------------------
+        # Prepare filtered DataFrames
+        # -------------------------
+        run_df = df[df['play_type']=='Run'].copy() if 'play_type' in df.columns else pd.DataFrame()
+        pass_df = df[df['play_type']=='Pass'].copy() if 'play_type' in df.columns else pd.DataFrame()
+        success_df = df.copy()
+    
+        # Convert booleans to numeric for % calculation
+        run_df['explosive'] = run_df['explosive'].astype(float)
+        pass_df['explosive'] = pass_df['explosive'].astype(float)
+        success_df['success'] = success_df['success'].astype(float)
+    
+        # -------------------------
+        # Display heatmaps
+        # -------------------------
+        st.markdown("### Explosive Plays")
+        c1, c2 = st.columns(2)
+        with c1:
             st.plotly_chart(plot_heatmap_hover(run_df, 'explosive', 'Run Explosive Plays %'), use_container_width=True)
-    with c2:
-        if not pass_df.empty:
+        with c2:
             st.plotly_chart(plot_heatmap_hover(pass_df, 'explosive', 'Pass Explosive Plays %'), use_container_width=True)
-
-    st.markdown("### Success Rate")
-    st.plotly_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %'), use_container_width=True)
+    
+        st.markdown("### Success Rate")
+        st.plotly_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %'), use_container_width=True)
 
 # -------------------------
 # TAB 3: Opponent Comparison
