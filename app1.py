@@ -145,14 +145,14 @@ if uploaded_file:
     # Setup tabs
     # -------------------------
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Entire Dataset",
+        "Overall Snapshot",
         "Filtered by Down/Yardline",
         "Success Heatmaps",
         "Concept Effectiveness",
         "Play Prediction"
     ])
 
-      # -------------------------
+        # -------------------------
     # Tab 1 - whole dataset
     # -------------------------
     with tab1:
@@ -187,63 +187,64 @@ if uploaded_file:
         r2c1.plotly_chart(run_pass_fig_all, use_container_width=True)
         r2c2.plotly_chart(concept_pie_fig_all, use_container_width=True)
 
-      # -------------------------
-      # TAB 2: Explosive & Success Metrics
-      # -------------------------
-          with tab2:
-           # Metrics
-           avg_gain = round(selected["gain_loss"].mean(), 1)
-           max_gain = selected["gain_loss"].max()
-           min_gain = selected["gain_loss"].min()
-           c1, c2, c3 = st.columns(3)
-           c1.markdown(
-               f'<div class="metric-card"><div class="metric-number">{avg_gain}</div><div class="metric-label">Average Gain</div></div>',
-               unsafe_allow_html=True)
-           c2.markdown(
-               f'<div class="metric-card"><div class="metric-number">{max_gain}</div><div class="metric-label">Max Gain</div></div>',
-               unsafe_allow_html=True)
-           c3.markdown(
-               f'<div class="metric-card"><div class="metric-number">{min_gain}</div><div class="metric-label">Min Gain</div></div>',
-               unsafe_allow_html=True)
-   
-           # Gain/Loss Distribution
-           gain_summary = selected.groupby("gain_loss").size().reset_index(name="plays").sort_values("gain_loss")
-           gain_fig = px.bar(gain_summary, x="gain_loss", y="plays",
-                             labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
-                             title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
-   
-           # Most ran concepts
-           top_concepts = selected.groupby(["concept", "play_direction"]).size().reset_index(name="count").sort_values(
-               "count", ascending=False).head(8)
-           concept_fig = px.bar(top_concepts, x="count", y="concept", color="play_direction", orientation="h",
-                                title="Most Frequent Concepts by Play Direction", template="plotly_dark",
-                                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"])
-   
-           # Run/Pass Pie
-           play_type_summary = selected["play_type"].value_counts().reset_index()
-           play_type_summary.columns = ["play_type", "count"]
-           run_pass_fig = px.pie(play_type_summary, names="play_type", values="count", title="Run vs Pass %",
-                                 color="play_type", color_discrete_map={"Run": "#0A2342", "Pass": "#7FDBFF"},
-                                 template="plotly_dark")
-   
-           # Concept Pie (Top 6)
-           concept_summary = selected["concept"].value_counts().head(6).reset_index()
-           concept_summary.columns = ["concept", "count"]
-           concept_pie_fig = px.pie(concept_summary, names="concept", values="count", title="Most Frequent Concepts",
-                                    color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
-   
-           # Layout Charts
-           r1c1, r1c2 = st.columns(2)
-           r1c1.plotly_chart(gain_fig, use_container_width=True)
-           r1c2.plotly_chart(concept_fig, use_container_width=True)
-   
-           st.markdown('<div class="section-header">Run/Pass & Concept Distribution</div>', unsafe_allow_html=True)
-           r2c1, r2c2 = st.columns(2)
-           r2c1.plotly_chart(run_pass_fig, use_container_width=True)
-           r2c2.plotly_chart(concept_pie_fig, use_container_width=True)
-   
-           st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
-           st.dataframe(selected, use_container_width=True)
+    # -------------------------
+    # Tab 2
+    # -------------------------
+    with tab2:
+        # Metrics
+        avg_gain = round(selected["gain_loss"].mean(), 1)
+        max_gain = selected["gain_loss"].max()
+        min_gain = selected["gain_loss"].min()
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(
+            f'<div class="metric-card"><div class="metric-number">{avg_gain}</div><div class="metric-label">Average Gain</div></div>',
+            unsafe_allow_html=True)
+        c2.markdown(
+            f'<div class="metric-card"><div class="metric-number">{max_gain}</div><div class="metric-label">Max Gain</div></div>',
+            unsafe_allow_html=True)
+        c3.markdown(
+            f'<div class="metric-card"><div class="metric-number">{min_gain}</div><div class="metric-label">Min Gain</div></div>',
+            unsafe_allow_html=True)
+
+        # Gain/Loss Distribution
+        gain_summary = selected.groupby("gain_loss").size().reset_index(name="plays").sort_values("gain_loss")
+        gain_fig = px.bar(gain_summary, x="gain_loss", y="plays",
+                          labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
+                          title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
+
+        # Most ran concepts
+        top_concepts = selected.groupby(["concept", "play_direction"]).size().reset_index(name="count").sort_values(
+            "count", ascending=False).head(8)
+        concept_fig = px.bar(top_concepts, x="count", y="concept", color="play_direction", orientation="h",
+                             title="Most Frequent Concepts by Play Direction", template="plotly_dark",
+                             color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"])
+
+        # Run/Pass Pie
+        play_type_summary = selected["play_type"].value_counts().reset_index()
+        play_type_summary.columns = ["play_type", "count"]
+        run_pass_fig = px.pie(play_type_summary, names="play_type", values="count", title="Run vs Pass %",
+                              color="play_type", color_discrete_map={"Run": "#0A2342", "Pass": "#7FDBFF"},
+                              template="plotly_dark")
+
+        # Concept Pie (Top 6)
+        concept_summary = selected["concept"].value_counts().head(6).reset_index()
+        concept_summary.columns = ["concept", "count"]
+        concept_pie_fig = px.pie(concept_summary, names="concept", values="count", title="Most Frequent Concepts",
+                                 color_discrete_sequence=px.colors.sequential.Blues, template="plotly_dark")
+
+        # Layout Charts
+        r1c1, r1c2 = st.columns(2)
+        r1c1.plotly_chart(gain_fig, use_container_width=True)
+        r1c2.plotly_chart(concept_fig, use_container_width=True)
+
+        st.markdown('<div class="section-header">Run/Pass & Concept Distribution</div>', unsafe_allow_html=True)
+        r2c1, r2c2 = st.columns(2)
+        r2c1.plotly_chart(run_pass_fig, use_container_width=True)
+        r2c2.plotly_chart(concept_pie_fig, use_container_width=True)
+
+        st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
+        st.dataframe(selected, use_container_width=True)
+
     # --------------
     # Tab 3 - heatmap
     # --------------
@@ -382,9 +383,3 @@ if uploaded_file:
         predicted_play = le.inverse_transform(prediction)[0]
 
         st.metric("Predicted Play Type", predicted_play)
-
-
-
-
-
-
