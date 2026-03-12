@@ -174,7 +174,7 @@ with tab2:
     # Heatmap function
     # -------------------------
     def plot_heatmap_hover(df_heat, val_col, title):
-    """
+    ""
     df_heat: DataFrame filtered for a play type (Run/Pass) or success
     val_col: column to use for the heatmap value (explosive or success)
     title: chart title
