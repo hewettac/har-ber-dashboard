@@ -245,53 +245,66 @@ if uploaded_file:
         st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
         st.dataframe(selected, use_container_width=True)
 
-
-      #-----------------------
-      # Play Success Heatmap
-      #-----------------------
+    #--------------------------
+    # TAB 3: Play Success Heatmap
+    # -------------------------
     with tab3:
-          st.markdown("### Play Success Heatmap")
+        st.markdown("### Play Success Heatmap")
 
-           
-          with st.expander("How to read this chart"):
-             st.write("""
-             This heatmap shows the **success rate of plays by down and field position**.
-             - Darker blue = higher success rate
-             - Lighter blue = lower success rate
-             - Success is defined as gaining **4 or more yards on a play**
-             """)
+        with st.expander("How to read this chart"):
+            st.write("""
+            This heatmap shows the **success rate of plays by down and field position**.
+            - Darker blue = higher success rate
+            - Lighter blue = lower success rate
+            - Success is defined as gaining **4 or more yards on a play**
+            """)
 
-         
+        # 1. Ensure 'success' column exists
+        df["success"] = df["gain_loss"] >= 4
 
+        # 2. Aggregate data
+        heatmap_df = df.groupby(["down", "yard_group"]).agg(
+            success_rate=("success", "mean"),
+            num_plays=("success", "count")
+        ).reset_index()
 
-        # Make sure 'success' column exists
-         df["success"] = df["gain_loss"] >= 4
+        # 3. Pivot for the heatmap and custom hover data
+        # We pivot both to ensure the grid cells match up exactly
+        pivot_success = heatmap_df.pivot(index="down", columns="yard_group", values="success_rate").fillna(0)
+        pivot_plays = heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").fillna(0)
 
-            heatmap_df = df.groupby(["down", "yard_group"]).agg(
-               success_rate=("success", "mean"),  # fraction of successful plays
-               num_plays=("success", "count")  # total plays in that bin
-            ).reset_index()
+        # Optional: Reorder columns to match field flow if yard_order is defined
+        existing_yard_cols = [y for y in yard_order if y in pivot_success.columns]
+        if existing_yard_cols:
+            pivot_success = pivot_success[existing_yard_cols]
+            pivot_plays = pivot_plays[existing_yard_cols]
 
-        # Create heatmap with hover showing both metrics
-            heatmap_fig = px.imshow(
-               heatmap_df.pivot(index="down", columns="yard_group", values="success_rate"),
-               text_auto=True,
-               aspect="auto",
-               labels=dict(x="Yard Group", y="Down", color="Success Rate"),
-               color_continuous_scale="Blues",
-            )
+        # 4. Create the heatmap
+        heatmap_fig = px.imshow(
+            pivot_success,
+            text_auto=".1%",
+            aspect="auto",
+            labels=dict(x="Yard Group", y="Down", color="Success Rate"),
+            color_continuous_scale="Blues",
+            template='plotly_dark'
+        )
 
-        # Add custom hover
-            heatmap_fig.update_traces(
-               hovertemplate="<b>Down:</b> %{y}<br>"
-               "<b>Yard Group:</b> %{x}<br>"
-               "<b>Success Rate:</b> %{z:.0%}<br>"
-               "<b>Number of Plays:</b> %{customdata}",
-               customdata=heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").values
-            )
+        # 5. Add fixed hover logic
+        heatmap_fig.update_traces(
+            hovertemplate="<b>Down:</b> %{y}<br>"
+                          "<b>Yard Group:</b> %{x}<br>"
+                          "<b>Success Rate:</b> %{z:.1%}<br>"
+                          "<b>Number of Plays:</b> %{customdata[0]:.0f}<extra></extra>",
+            customdata=np.stack([pivot_plays.values], axis=-1)
+        )
+        
+        # Ensure Down order is correct on the Y-Axis
+        if 'down_order' in locals() or 'down_order' in globals():
+            heatmap_fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
 
-        # Show in Streamlit
-            st.plotly_chart(heatmap_fig, use_container_width=True)
+        # 6. Show the chart
+        st.plotly_chart(heatmap_fig, use_container_width=True)
+
 
     # --------------
     # Tab 4 - Concept Effectiveness
