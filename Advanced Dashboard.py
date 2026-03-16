@@ -295,17 +295,7 @@ if uploaded_file:
         st.markdown('<div class="section-header">Play Success Predictor</div>', unsafe_allow_html=True)
     
         if {'down','distance','yardline','play_type','gain_loss'}.issubset(df.columns):
-    
-            model_df = df.copy()
-    
-            # success definition
-            model_df['success'] = model_df['gain_loss'] >= 4
-    
-            # encode categorical
-            model_df = pd.get_dummies(model_df, columns=['play_type','concept'], drop_first=True)
-    
-            features = model_df.drop(columns=['gain_loss','success'])
-            target = model_df['success']
+                
     
             model = RandomForestClassifier(n_estimators=200, random_state=42)
             model.fit(features, target)
