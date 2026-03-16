@@ -105,11 +105,10 @@ if uploaded_file:
         "Explosive & Success Metrics",
         "Gain/Loss Breakdown",
         "Concept by Yardline",
-        "Play Success Predictor",
         "Formation Breakdown",
         "Concept Breakdown"
     ])
-    tab1, tab2, tab3, tab4, tab5, tab6 = tabs
+    tab1, tab2, tab3, tab4, tab5 = tabs
 
 
     # -------------------------
@@ -302,79 +301,9 @@ if uploaded_file:
 
 
     # -------------------------
-    # TAB 4: Play Success Predictor
+    # TAB 4: Formation Breakdown
     # -------------------------
     with tab4:
-    
-        st.markdown('<div class="section-header">Play Success Predictor</div>', unsafe_allow_html=True)
-    
-        if {'down','distance','yardline','play_type','gain_loss', 'formation'}.issubset(df.columns):
-    
-            model_df = df.copy()
-    
-            # Define success
-            model_df['success'] = model_df['gain_loss'] >= 4
-    
-            # Keep only needed columns
-            model_df = model_df[['down','distance','yardline','play_type','success']]
-    
-            # Encode play type
-            model_df = pd.get_dummies(model_df, columns=['play_type'])
-    
-            features = model_df.drop(columns=['success'])
-            target = model_df['success']
-    
-            # Fill missing values
-            features = features.fillna(0)
-    
-            # Train model
-            model = RandomForestClassifier(n_estimators=200, random_state=42)
-            model.fit(features, target)
-    
-            st.markdown("### Enter Game Situation")
-    
-            c1, c2, c3 = st.columns(3)
-    
-            down = c1.selectbox("Down", sorted(df['down'].dropna().unique()))
-            distance = c2.slider("Distance", 1, 20, 5)
-            yardline = c3.slider("Yardline", -50, 50, 0)
-    
-            play_type = st.selectbox("Play Type", df['play_type'].dropna().unique())
-    
-            # Build prediction row
-            input_dict = {
-                'down': down,
-                'distance': distance,
-                'yardline': yardline
-            }
-    
-            # Add play type columns
-            for col in features.columns:
-                if col.startswith("play_type_"):
-                    input_dict[col] = 1 if col == f"play_type_{play_type}" else 0
-    
-            input_df = pd.DataFrame([input_dict])
-    
-            # Ensure same column order
-            input_df = input_df.reindex(columns=features.columns, fill_value=0)
-    
-            # Predict
-            prob = model.predict_proba(input_df)[0][1]
-    
-            st.markdown(f"""
-            <div class="metric-card">
-            <div class="metric-number">{prob*100:.1f}%</div>
-            <div class="metric-label">Predicted Success Probability</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-        else:
-            st.warning("Not enough columns for machine learning model.")
-
-    # -------------------------
-    # TAB 5: Formation Breakdown
-    # -------------------------
-    with tab5:
     
         st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
     
@@ -441,9 +370,9 @@ if uploaded_file:
 
 
     # -------------------------
-    # TAB 6: Concept Breakdown
+    # TAB 5: Concept Breakdown
     # -------------------------
-    with tab6:
+    with tab5:
     
         st.markdown('<div class="section-header">Concept Breakdown</div>', unsafe_allow_html=True)
     
