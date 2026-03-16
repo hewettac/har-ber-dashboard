@@ -103,9 +103,13 @@ if uploaded_file:
     tabs = st.tabs([
         "Explosive & Success Metrics",
         "Gain/Loss Breakdown",
-        "Best Play Call"
+        "Best Play Call",
+        "Success Predictor",
+        "Opponent Tendency Predictor",
+        "Formation Breakdown",
+        "Concept Breakdown"
     ])
-    tab1, tab2, tab3 = tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = tabs
 
 
     # -------------------------
@@ -282,3 +286,196 @@ if uploaded_file:
                 st.dataframe(summary_display.sort_values("rank_score", ascending=False)[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
             else:
                 st.warning("No 'concept' column found for Best Play Call.")
+
+
+    # -------------------------
+    # TAB 4: Success Predictor (Random Forest)
+    # -------------------------
+    with tab4:
+    
+        st.markdown('<div class="section-header">Play Success Predictor (Machine Learning)</div>', unsafe_allow_html=True)
+    
+        if {'down','distance','yardline','play_type','gain_loss'}.issubset(df.columns):
+    
+            model_df = df.copy()
+    
+            # success definition
+            model_df['success'] = model_df['gain_loss'] >= 4
+    
+            # encode categorical
+            model_df = pd.get_dummies(model_df, columns=['play_type','concept'], drop_first=True)
+    
+            features = model_df.drop(columns=['gain_loss','success'])
+            target = model_df['success']
+    
+            model = RandomForestClassifier(n_estimators=200, random_state=42)
+            model.fit(features, target)
+    
+            st.markdown("### Enter Game Situation")
+    
+            c1,c2,c3 = st.columns(3)
+    
+            down = c1.selectbox("Down", sorted(df['down'].dropna().unique()))
+            distance = c2.slider("Distance",1,20,5)
+            yardline = c3.slider("Yardline",-50,50,0)
+    
+            play_type = st.selectbox("Play Type", df['play_type'].dropna().unique())
+    
+            concept = None
+            if 'concept' in df.columns:
+                concept = st.selectbox("Concept", df['concept'].dropna().unique())
+    
+            # build input row
+            input_df = pd.DataFrame({
+                'down':[down],
+                'distance':[distance],
+                'yardline':[yardline]
+            })
+    
+            input_df = pd.concat([input_df]*len(features.columns), axis=1).iloc[:,0:3]
+    
+            # prediction probability
+            prob = model.predict_proba(features.mean().to_frame().T)[0][1]
+    
+            st.markdown(f"""
+            <div class="metric-card">
+            <div class="metric-number">{prob*100:.1f}%</div>
+            <div class="metric-label">Predicted Success Probability</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+        else:
+            st.warning("Not enough columns for machine learning model.")
+
+    # -------------------------
+    # TAB 5: Formation Breakdown
+    # -------------------------
+    with tab5:
+    
+        st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
+    
+        if 'formation' in df.columns:
+    
+            form_df = df.copy()
+    
+            form_df['success'] = form_df['gain_loss'] >= 4
+            form_df['explosive'] = form_df.apply(
+                lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run'
+                else row['gain_loss'] >= 20, axis=1
+            )
+    
+            summary = form_df.groupby('formation').agg(
+                plays=('gain_loss','size'),
+                avg_gain=('gain_loss','mean'),
+                success_pct=('success','mean'),
+                explosive_pct=('explosive','mean')
+            ).reset_index()
+    
+            summary = summary[summary['plays'] >= 3]  # remove tiny samples
+    
+            # Metric Table
+            display = summary.copy()
+            display['avg_gain'] = display['avg_gain'].round(1)
+            display['success_pct'] = (display['success_pct']*100).round(1)
+            display['explosive_pct'] = (display['explosive_pct']*100).round(1)
+    
+            st.dataframe(display.sort_values('success_pct', ascending=False),
+                         use_container_width=True)
+    
+            # Success chart
+            fig = px.bar(
+                summary.sort_values('success_pct'),
+                x='success_pct',
+                y='formation',
+                orientation='h',
+                template='plotly_dark',
+                title="Formation Success Rate",
+                labels={'success_pct':'Success %','formation':'Formation'},
+                color='success_pct',
+                color_continuous_scale='Blues'
+            )
+    
+            st.plotly_chart(fig, use_container_width=True)
+    
+            # Explosive chart
+            fig2 = px.bar(
+                summary.sort_values('explosive_pct'),
+                x='explosive_pct',
+                y='formation',
+                orientation='h',
+                template='plotly_dark',
+                title="Formation Explosive Play %",
+                labels={'explosive_pct':'Explosive %','formation':'Formation'},
+                color='explosive_pct',
+                color_continuous_scale='Blues'
+            )
+    
+            st.plotly_chart(fig2, use_container_width=True)
+    
+        else:
+            st.warning("No 'formation' column found in dataset.")
+
+    # -------------------------
+    # TAB 6: Concept Breakdown
+    # -------------------------
+    with tab6:
+    
+        st.markdown('<div class="section-header">Concept Breakdown</div>', unsafe_allow_html=True)
+    
+        if 'concept' in df.columns:
+    
+            concept_df = df.copy()
+    
+            concept_df['success'] = concept_df['gain_loss'] >= 4
+            concept_df['explosive'] = concept_df.apply(
+                lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run'
+                else row['gain_loss'] >= 20, axis=1
+            )
+    
+            summary = concept_df.groupby('concept').agg(
+                plays=('gain_loss','size'),
+                avg_gain=('gain_loss','mean'),
+                success_pct=('success','mean'),
+                explosive_pct=('explosive','mean')
+            ).reset_index()
+    
+            summary = summary[summary['plays'] >= 3]
+    
+            display = summary.copy()
+            display['avg_gain'] = display['avg_gain'].round(1)
+            display['success_pct'] = (display['success_pct']*100).round(1)
+            display['explosive_pct'] = (display['explosive_pct']*100).round(1)
+    
+            st.dataframe(display.sort_values('success_pct', ascending=False),
+                         use_container_width=True)
+    
+            fig = px.bar(
+                summary.sort_values('success_pct'),
+                x='success_pct',
+                y='concept',
+                orientation='h',
+                template='plotly_dark',
+                title="Concept Success Rate",
+                labels={'success_pct':'Success %','concept':'Concept'},
+                color='success_pct',
+                color_continuous_scale='Blues'
+            )
+    
+            st.plotly_chart(fig, use_container_width=True)
+    
+            fig2 = px.bar(
+                summary.sort_values('explosive_pct'),
+                x='explosive_pct',
+                y='concept',
+                orientation='h',
+                template='plotly_dark',
+                title="Concept Explosive Play %",
+                labels={'explosive_pct':'Explosive %','concept':'Concept'},
+                color='explosive_pct',
+                color_continuous_scale='Blues'
+            )
+    
+            st.plotly_chart(fig2, use_container_width=True)
+    
+        else:
+            st.warning("No 'concept' column found in dataset.")
