@@ -212,8 +212,8 @@ if uploaded_file:
     with tab2:
         st.markdown('<div class="section-header">Gain/Loss Breakdown</div>', unsafe_allow_html=True)
     
-        if 'down' in opp_df.columns:
-            summary = opp_df.groupby(['down','yard_group'])['gain_loss'].mean().reset_index()
+        if 'down' in df.columns:
+            summary = df.groupby(['down','yard_group'])['gain_loss'].mean().reset_index()
             summary['gain_loss'] = summary['gain_loss'].round(1)
             pivot = summary.pivot(index='down', columns='yard_group', values='gain_loss').fillna(0)
             fig_heat = px.imshow(pivot, text_auto=True, color_continuous_scale='Blues',
