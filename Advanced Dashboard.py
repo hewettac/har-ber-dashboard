@@ -196,6 +196,21 @@ if uploaded_file:
                 fig_concept.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Value:</b> %{z}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_plays.values], axis=-1))
                 st.plotly_chart(fig_concept, use_container_width=True)
 
+                # --- ADDING THE EXCEL-STYLE TABLE HERE ---
+                st.markdown("### Concept Data Worksheet")
+            
+                # Clean up the summary for the worksheet view
+                worksheet_df = concept_summary.copy()
+                worksheet_df['success_rate'] = (worksheet_df['success_rate'] * 100).round(1).astype(str) + '%'
+                worksheet_df['explosive_rate'] = (worksheet_df['explosive_rate'] * 100).round(1).astype(str) + '%'
+                worksheet_df['avg_gain'] = worksheet_df['avg_gain'].round(1)
+            
+                st.dataframe(
+                worksheet_df.sort_values(['concept', 'yard_group']),
+                use_container_width=True,
+                hide_index=True
+                )
+
     # -------------------------
     # TAB 4: Formation Breakdown
     # -------------------------
@@ -215,6 +230,19 @@ if uploaded_file:
             fig_form = px.imshow(pivot_form, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Down', 'y': 'Formation', 'color': 'Avg Gain'}, title="Average Gain by Formation and Down")
             fig_form.update_traces(hovertemplate="<b>Formation:</b> %{y}<br><b>Down:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f}y<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_form_plays.values], axis=-1))
             st.plotly_chart(fig_form, use_container_width=True)
+
+            # --- ADDING THE EXCEL-STYLE TABLE HERE ---
+            st.markdown("### Formation Data Worksheet")
+            
+            # Sort by Formation and Down for a clean worksheet view
+            form_worksheet = form_summary.copy().sort_values(['formation', 'down'])
+            form_worksheet['avg_gain'] = form_worksheet['avg_gain'].round(1)
+            
+            st.dataframe(
+                form_worksheet,
+                use_container_width=True,
+                hide_index=True
+            )
 
         
 
