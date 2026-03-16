@@ -101,48 +101,17 @@ if uploaded_file:
     # Tabs
     # -------------------------
     tabs = st.tabs([
-        "Play Success Prediction",
         "Explosive & Success Metrics",
         "Opponent Comparison",
         "Best Play Call"
     ])
-    tab1, tab2, tab3, tab4 = tabs
+    tab1, tab2, tab3 = tabs
+
 
     # -------------------------
-    # TAB 1: Play Success Prediction
+    # TAB 1: Explosive & Success Metrics
     # -------------------------
     with tab1:
-        st.markdown('<div class="section-header">Play Success Prediction</div>', unsafe_allow_html=True)
-        if 'down' in df.columns:
-            down_choice = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="success_down")
-            df_down = df[df["down"] == down_choice]
-            yard_choice = st.selectbox("Yard Group", [yg for yg in yard_order if yg in df_down["yard_group"].unique()],
-                                       key="success_yard")
-            selected = df_down[df_down["yard_group"] == yard_choice]
-
-            if selected.empty:
-                st.warning("No plays for this selection.")
-            else:
-                avg_gain = round(selected["gain_loss"].mean(), 1)
-                max_gain = selected["gain_loss"].max()
-                min_gain = selected["gain_loss"].min()
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f'<div class="metric-card"><div class="metric-number">{avg_gain}</div><div class="metric-label">Average Gain</div></div>', unsafe_allow_html=True)
-                c2.markdown(f'<div class="metric-card"><div class="metric-number">{max_gain}</div><div class="metric-label">Max Gain</div></div>', unsafe_allow_html=True)
-                c3.markdown(f'<div class="metric-card"><div class="metric-number">{min_gain}</div><div class="metric-label">Min Gain</div></div>', unsafe_allow_html=True)
-
-                gain_summary = selected.groupby("gain_loss").size().reset_index(name="plays").sort_values("gain_loss")
-                gain_fig = px.bar(gain_summary, x="gain_loss", y="plays",
-                                  labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
-                                  title="Gain / Loss Distribution", template="plotly_dark", color_discrete_sequence=["#7FDBFF"])
-                st.plotly_chart(gain_fig, use_container_width=True)
-        else:
-            st.warning("No 'down' column found.")
-
-    # -------------------------
-    # TAB 2: Explosive & Success Metrics
-    # -------------------------
-    with tab2:
         st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
         st.markdown("""
         **Definitions:**  
@@ -238,9 +207,9 @@ if uploaded_file:
         st.plotly_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %'), use_container_width=True)
 
     # -------------------------
-    # TAB 3: Opponent Comparison
+    # TAB 2: Opponent Comparison
     # -------------------------
-    with tab3:
+    with tab2:
         st.markdown('<div class="section-header">Opponent Comparison</div>', unsafe_allow_html=True)
     
         opponents = df['opponent'].dropna().unique() if 'opponent' in df.columns else []
@@ -273,9 +242,9 @@ if uploaded_file:
             st.plotly_chart(fig_heat, use_container_width=True)
     
     # -------------------------
-    # TAB 4: Best Play Call
+    # TAB 3: Best Play Call
     # -------------------------
-    with tab4:
+    with tab3:
         st.markdown('<div class="section-header">Best Play Call</div>', unsafe_allow_html=True)
     
         down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="best_down") if 'down' in df.columns else None
