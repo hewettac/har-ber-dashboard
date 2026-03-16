@@ -250,8 +250,7 @@ if uploaded_file:
       # Play Success Heatmap
       #-----------------------
     with tab3:
-
-        st.markdown("### Play Success Heatmap")
+         st.markdown("### Play Success Heatmap")
          with st.expander("How to read this chart"):
                 st.write("""
                 This heatmap shows the **success rate of plays by down and field position**.
