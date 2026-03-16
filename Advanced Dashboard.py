@@ -360,78 +360,74 @@ if uploaded_file:
         # -------------------------
         # TAB 5: Formation Breakdown
         # -------------------------
-        with tab5:
-            # Normalize column names
-            df.columns = df.columns.str.strip().str.lower()  # lowercase & strip
-    
-            # Map Hudl weird column names
-            if 'off form' in df.columns:
-                df = df.rename(columns={'off form':'formation'})
+    with tab5:
         
+       st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
 
+        # Use off_form instead of formation
+        if 'off_form' in df.columns:
         
-            st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
+            form_df = df.copy()
         
-            if 'formation' in df.columns:
+            # Flags
+            form_df['success'] = form_df['gain_loss'] >= 4
+            form_df['explosive'] = form_df.apply(
+                lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run'
+                else row['gain_loss'] >= 20, axis=1
+            )
         
-                form_df = df.copy()
+            # Group by off_form
+            summary = form_df.groupby('off_form').agg(
+                plays=('gain_loss','size'),
+                avg_gain=('gain_loss','mean'),
+                success_pct=('success','mean'),
+                explosive_pct=('explosive','mean')
+            ).reset_index()
         
-                # Flags
-                form_df['success'] = form_df['gain_loss'] >= 4
-                form_df['explosive'] = form_df.apply(
-                    lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run'
-                    else row['gain_loss'] >= 20, axis=1
-                )
+            summary = summary[summary['plays'] >= 3]
         
-                # Group by formation
-                summary = form_df.groupby('formation').agg(
-                    plays=('gain_loss','size'),
-                    avg_gain=('gain_loss','mean'),
-                    success_pct=('success','mean'),
-                    explosive_pct=('explosive','mean')
-                ).reset_index()
+            # Format for display
+            display = summary.copy()
+            display['avg_gain'] = display['avg_gain'].round(1)
+            display['success_pct'] = (display['success_pct']*100).round(1)
+            display['explosive_pct'] = (display['explosive_pct']*100).round(1)
         
-                summary = summary[summary['plays'] >= 3]  # remove tiny samples
+            st.dataframe(
+                display.sort_values('success_pct', ascending=False),
+                use_container_width=True
+            )
         
-                # Format for display
-                display = summary.copy()
-                display['avg_gain'] = display['avg_gain'].round(1)
-                display['success_pct'] = (display['success_pct']*100).round(1)
-                display['explosive_pct'] = (display['explosive_pct']*100).round(1)
+            # Success chart
+            fig = px.bar(
+                summary.sort_values('success_pct'),
+                x='success_pct',
+                y='off_form',
+                orientation='h',
+                template='plotly_dark',
+                title="Offensive Formation Success Rate",
+                labels={'success_pct':'Success %','off_form':'Off Form'},
+                color='success_pct',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig, use_container_width=True)
         
-                st.dataframe(display.sort_values('success_pct', ascending=False),
-                             use_container_width=True)
+            # Explosive chart
+            fig2 = px.bar(
+                summary.sort_values('explosive_pct'),
+                x='explosive_pct',
+                y='off_form',
+                orientation='h',
+                template='plotly_dark',
+                title="Offensive Formation Explosive Play %",
+                labels={'explosive_pct':'Explosive %','off_form':'Off Form'},
+                color='explosive_pct',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig2, use_container_width=True)
         
-                # Success chart
-                fig = px.bar(
-                    summary.sort_values('success_pct'),
-                    x='success_pct',
-                    y='formation',
-                    orientation='h',
-                    template='plotly_dark',
-                    title="Formation Success Rate",
-                    labels={'success_pct':'Success %','formation':'Formation'},
-                    color='success_pct',
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-                # Explosive chart
-                fig2 = px.bar(
-                    summary.sort_values('explosive_pct'),
-                    x='explosive_pct',
-                    y='formation',
-                    orientation='h',
-                    template='plotly_dark',
-                    title="Formation Explosive Play %",
-                    labels={'explosive_pct':'Explosive %','formation':'Formation'},
-                    color='explosive_pct',
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig2, use_container_width=True)
-        
-            else:
-                st.warning("No 'formation' column found in dataset.")
+        else:
+            st.warning("No 'off_form' column found in dataset.")
+
 
     # -------------------------
     # TAB 6: Concept Breakdown
