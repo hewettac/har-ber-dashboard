@@ -365,7 +365,7 @@ if uploaded_file:
        st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
 
         # Use off_form instead of formation
-        if 'off_form' in df.columns:
+    if 'off_form' in df.columns:
         
             form_df = df.copy()
         
