@@ -104,7 +104,7 @@ if uploaded_file:
     tabs = st.tabs([
         "Explosive & Success Metrics",
         "Gain/Loss Breakdown",
-        "Best Play Call",
+        "Concept by Yardline",
         "Play Success Predictor",
         "Formation Breakdown",
         "Concept Breakdown"
@@ -228,64 +228,77 @@ if uploaded_file:
             st.plotly_chart(fig_heat, use_container_width=True)
     
     # -------------------------
-    # TAB 3: Best Play Call
+    # TAB 3: Concept by Yardline
     # -------------------------
     with tab3:
-        st.markdown('<div class="section-header">Best Play Call</div>', unsafe_allow_html=True)
-    
-        down_input = st.selectbox("Down", sorted(df["down"].dropna().unique()), key="best_down") if 'down' in df.columns else None
-        dist_input = st.slider("Distance to Go", 1, 20, 5, key="best_distance")
-        yard_input = st.slider("Yardline", -50, 50, 0, key="best_yardline")
-    
-        hist_df = df[
-            ((df["down"]==down_input) if down_input is not None else True) &
-            ((df["distance"]==dist_input) if 'distance' in df.columns else True) &
-            ((df["yardline"]==yard_input) if 'yardline' in df.columns else True)
-        ]
-    
-        if hist_df.empty:
-            st.warning("No historical plays found for this situation.")
-        else:
-            hist_df['success'] = hist_df['gain_loss'] >= max(4, dist_input)
-            hist_df['explosive'] = hist_df.apply(lambda row: row['gain_loss'] >= 10 if row.get('play_type','')=='Run' else row['gain_loss'] >= 20, axis=1)
-    
-            if 'concept' in hist_df.columns:
-                summary = hist_df.groupby("concept").agg(
-                    expected_gain=("gain_loss","mean"),
-                    success_pct=("success","mean"),
-                    explosive_pct=("explosive","mean")
-                ).reset_index()
-                summary["rank_score"] = summary["expected_gain"] * summary["success_pct"]
-    
-                best_play = summary.sort_values("rank_score", ascending=False).iloc[0]
-    
-                c1, c2, c3, c4 = st.columns(4)
-                c1.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.expected_gain,1)}</div><div class="metric-label">Expected Gain</div></div>', unsafe_allow_html=True)
-                c2.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.success_pct*100,1)}%</div><div class="metric-label">Success %</div></div>', unsafe_allow_html=True)
-                c3.markdown(f'<div class="metric-card"><div class="metric-number">{round(best_play.explosive_pct*100,1)}%</div><div class="metric-label">Explosive %</div></div>', unsafe_allow_html=True)
-                c4.markdown(f'<div class="metric-card"><div class="metric-number">{best_play.concept}</div><div class="metric-label">Best Concept</div></div>', unsafe_allow_html=True)
-    
-                fig = px.bar(
-                    summary.sort_values("expected_gain"),
-                    x="expected_gain", y="concept", orientation="h",
-                    color="success_pct",
-                    color_continuous_scale="Blues",
-                    text=summary["success_pct"].apply(lambda x: f"{x*100:.1f}%"),
-                    labels={"expected_gain":"Expected Gain (yards)","concept":"Play Concept","success_pct":"Success %"},
-                    template="plotly_dark",
-                    title="Comparison of Play Concepts"
-                )
-                fig.update_layout(yaxis=dict(dtick=1))
-                st.plotly_chart(fig, use_container_width=True)
-    
-                st.markdown('<div class="section-header">Detailed Stats</div>', unsafe_allow_html=True)
-                summary_display = summary.copy()
-                summary_display["expected_gain"] = summary_display["expected_gain"].round(1)
-                summary_display["success_pct"] = (summary_display["success_pct"]*100).round(1).astype(str) + "%"
-                summary_display["explosive_pct"] = (summary_display["explosive_pct"]*100).round(1).astype(str) + "%"
-                st.dataframe(summary_display.sort_values("rank_score", ascending=False)[["concept","expected_gain","success_pct","explosive_pct"]], use_container_width=True)
+        st.markdown('<div class="section-header">Concept Effectiveness by Field Zone</div>', unsafe_allow_html=True)
+        
+        if 'concept' in df.columns:
+            # Filters for the heatmap
+            c1, c2 = st.columns(2)
+            with c1:
+                min_plays = st.number_input("Min Plays to Show Concept", min_value=1, value=2, step=1)
+            with c2:
+                metric_to_show = st.selectbox("Select Metric", ["Success Rate %", "Average Gain", "Explosive Play %"])
+
+            # Map selection to columns
+            metric_map = {
+                "Success Rate %": "success",
+                "Average Gain": "gain_loss",
+                "Explosive Play %": "explosive"
+            }
+            target_col = metric_map[metric_to_show]
+
+            # Aggregate Data
+            concept_summary = df.groupby(['concept', 'yard_group']).agg(
+                plays=('gain_loss', 'count'),
+                avg_gain=('gain_loss', 'mean'),
+                success_rate=('success', 'mean'),
+                explosive_rate=('explosive', 'mean')
+            ).reset_index()
+
+            # Filter for volume
+            concept_summary = concept_summary[concept_summary['plays'] >= min_plays]
+
+            if concept_summary.empty:
+                st.warning("No concepts met the minimum play threshold for these yard groups.")
             else:
-                st.warning("No 'concept' column found for Best Play Call.")
+                # Prepare value based on selection
+                if metric_to_show == "Success Rate %":
+                    concept_summary['display_val'] = (concept_summary['success_rate'] * 100).round(1)
+                elif metric_to_show == "Explosive Play %":
+                    concept_summary['display_val'] = (concept_summary['explosive_rate'] * 100).round(1)
+                else:
+                    concept_summary['display_val'] = concept_summary['avg_gain'].round(1)
+
+                # Pivot for Heatmap
+                pivot_concept = concept_summary.pivot(index='concept', columns='yard_group', values='display_val').fillna(0)
+                
+                # Reorder columns based on field position
+                existing_yard_order = [y for y in yard_order if y in pivot_concept.columns]
+                pivot_concept = pivot_concept[existing_yard_order]
+
+                fig_concept = px.imshow(
+                    pivot_concept,
+                    text_auto=True,
+                    aspect="auto",
+                    color_continuous_scale='Blues',
+                    template='plotly_dark',
+                    labels={'x': 'Field Zone', 'y': 'Play Concept', 'color': metric_to_show},
+                    title=f"{metric_to_show} by Concept and Yardline"
+                )
+                
+                st.plotly_chart(fig_concept, use_container_width=True)
+
+                # Detailed Table
+                st.markdown("### Detailed Concept Data")
+                st.dataframe(
+                    concept_summary.sort_values(['yard_group', 'success_rate'], ascending=[True, False])
+                    [['concept', 'yard_group', 'plays', 'avg_gain', 'success_rate', 'explosive_rate']],
+                    use_container_width=True
+                )
+        else:
+            st.warning("The 'concept' column (Off Play) was not found in your file.")
 
 
     # -------------------------
