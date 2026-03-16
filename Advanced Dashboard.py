@@ -365,7 +365,7 @@ if uploaded_file:
        st.markdown('<div class="section-header">Formation Breakdown</div>', unsafe_allow_html=True)
 
         # Use off_form instead of formation
-    if 'off_form' in df.columns:
+    if 'OFF FORM' in df.columns:
         
             form_df = df.copy()
         
@@ -377,7 +377,7 @@ if uploaded_file:
             )
         
             # Group by off_form
-            summary = form_df.groupby('off_form').agg(
+            summary = form_df.groupby('OFF FORM').agg(
                 plays=('gain_loss','size'),
                 avg_gain=('gain_loss','mean'),
                 success_pct=('success','mean'),
@@ -401,7 +401,7 @@ if uploaded_file:
             fig = px.bar(
                 summary.sort_values('success_pct'),
                 x='success_pct',
-                y='off_form',
+                y='OFF FORM',
                 orientation='h',
                 template='plotly_dark',
                 title="Offensive Formation Success Rate",
@@ -415,7 +415,7 @@ if uploaded_file:
             fig2 = px.bar(
                 summary.sort_values('explosive_pct'),
                 x='explosive_pct',
-                y='off_form',
+                y='OFF FORM',
                 orientation='h',
                 template='plotly_dark',
                 title="Offensive Formation Explosive Play %",
