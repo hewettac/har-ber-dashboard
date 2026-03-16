@@ -312,7 +312,7 @@ if uploaded_file:
 
                 **Bubble Size:** Number of times the concept was run
 
-                The best concepts arre large and towards the right:
+                The best concepts are large and towards the right:
                 • High success rate
                 • High average gain
                 • Large sample size
