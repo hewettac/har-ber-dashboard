@@ -104,8 +104,7 @@ if uploaded_file:
         "Explosive & Success Metrics",
         "Gain/Loss Breakdown",
         "Best Play Call",
-        "Success Predictor",
-        "Opponent Tendency Predictor",
+        "Play Success Predictor",
         "Formation Breakdown",
         "Concept Breakdown"
     ])
@@ -293,7 +292,7 @@ if uploaded_file:
     # -------------------------
     with tab4:
     
-        st.markdown('<div class="section-header">Play Success Predictor (Machine Learning)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Play Success Predictor</div>', unsafe_allow_html=True)
     
         if {'down','distance','yardline','play_type','gain_loss'}.issubset(df.columns):
     
