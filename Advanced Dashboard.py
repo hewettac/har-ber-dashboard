@@ -200,7 +200,7 @@ if uploaded_file:
                 summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
                 summary = summary[summary['plays'] >= 3]
             
-                st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=
+                st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
 
     # -------------------------
     # TAB 4: Formation Breakdown
