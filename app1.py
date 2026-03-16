@@ -336,7 +336,6 @@ if uploaded_file:
                 y="avg_gain",
                 size="plays",
                 hover_name="concept",
-                title="Concept Effectiveness",
                 template="plotly_dark"
             )
 
