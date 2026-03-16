@@ -196,12 +196,12 @@ if uploaded_file:
                 template='plotly_dark',
                 title=title
             )
-    
-            # Custom hover
+
+
             fig.update_traces(
                 hovertemplate="<b>Down:</b> %{y}<br>"
                               "<b>Yard Group:</b> %{x}<br>"
-                              f"<b>{title}:</b> %{z:.1f}%<br>"
+                              f"<b>{title}:</b> %{{z:.1f}}%<br>"
                               "<b>Number of Plays:</b> %{customdata[0]:.0f}<br>"
                               "<b>Average Gain:</b> %{customdata[1]:.1f} yards",
                 customdata=customdata_array
