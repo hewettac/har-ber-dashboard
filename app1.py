@@ -245,8 +245,8 @@ if uploaded_file:
         st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
         st.dataframe(selected, use_container_width=True)
 
-    #--------------------------
-    # TAB 3: Play Success Heatmap
+# -------------------------
+    # TAB 3: Concept & Success
     # -------------------------
     with tab3:
         st.markdown("### Play Success Heatmap")
@@ -259,27 +259,25 @@ if uploaded_file:
             - Success is defined as gaining **4 or more yards on a play**
             """)
 
-        # 1. Ensure 'success' column exists
+        # Ensure success column exists
         df["success"] = df["gain_loss"] >= 4
 
-        # 2. Aggregate data
+        # Aggregate data
         heatmap_df = df.groupby(["down", "yard_group"]).agg(
             success_rate=("success", "mean"),
             num_plays=("success", "count")
         ).reset_index()
 
-        # 3. Pivot for the heatmap and custom hover data
-        # We pivot both to ensure the grid cells match up exactly
+        # Pivot
         pivot_success = heatmap_df.pivot(index="down", columns="yard_group", values="success_rate").fillna(0)
         pivot_plays = heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").fillna(0)
 
-        # Optional: Reorder columns to match field flow if yard_order is defined
+        # Sort columns by field position
         existing_yard_cols = [y for y in yard_order if y in pivot_success.columns]
         if existing_yard_cols:
             pivot_success = pivot_success[existing_yard_cols]
             pivot_plays = pivot_plays[existing_yard_cols]
 
-        # 4. Create the heatmap
         heatmap_fig = px.imshow(
             pivot_success,
             text_auto=".1%",
@@ -289,22 +287,16 @@ if uploaded_file:
             template='plotly_dark'
         )
 
-        # 5. Add fixed hover logic
+        # The fix for the error: explicitly using np.stack on pivoted values
         heatmap_fig.update_traces(
-            hovertemplate="<b>Down:</b> %{y}<br>"
-                          "<b>Yard Group:</b> %{x}<br>"
-                          "<b>Success Rate:</b> %{z:.1%}<br>"
-                          "<b>Number of Plays:</b> %{customdata[0]:.0f}<extra></extra>",
+            hovertemplate="<b>Down:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Success:</b> %{z:.1%}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>",
             customdata=np.stack([pivot_plays.values], axis=-1)
         )
         
-        # Ensure Down order is correct on the Y-Axis
-        if 'down_order' in locals() or 'down_order' in globals():
+        if 'down_order' in locals():
             heatmap_fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
 
-        # 6. Show the chart
         st.plotly_chart(heatmap_fig, use_container_width=True)
-
 
     # --------------
     # Tab 4 - Concept Effectiveness
