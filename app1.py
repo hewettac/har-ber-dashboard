@@ -249,7 +249,6 @@ if uploaded_file:
       #-----------------------
       # Play Success Heatmap
       #-----------------------
-    with tab3:  
     with tab3:
           st.markdown("### Play Success Heatmap")
 
