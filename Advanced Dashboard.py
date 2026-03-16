@@ -53,7 +53,7 @@ if uploaded_file:
         "play_type": ["play type", "playtype", "type"],
         "play_direction": ["play dir"],
         "gain_loss": ["gn/ls", "gain_loss", "gain loss"],
-        "formation": ["OFF FORM"]
+        "formation": ["off form"]
     }
     rename_dict = {}
     for s, v in COLUMN_MAP.items():
