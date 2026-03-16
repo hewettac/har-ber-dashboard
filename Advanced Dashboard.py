@@ -102,7 +102,7 @@ if uploaded_file:
     # -------------------------
     tabs = st.tabs([
         "Explosive & Success Metrics",
-        "Opponent Comparison",
+        "Gain/Loss Breakdown",
         "Best Play Call"
     ])
     tab1, tab2, tab3 = tabs
@@ -210,7 +210,7 @@ if uploaded_file:
     # TAB 2: Opponent Comparison
     # -------------------------
     with tab2:
-        st.markdown('<div class="section-header">Opponent Comparison</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Gain/Loss Breakdown</div>', unsafe_allow_html=True)
     
         opponents = df['opponent'].dropna().unique() if 'opponent' in df.columns else []
         if len(opponents) > 0:
