@@ -212,24 +212,6 @@ if uploaded_file:
     with tab2:
         st.markdown('<div class="section-header">Gain/Loss Breakdown</div>', unsafe_allow_html=True)
     
-        opponents = df['opponent'].dropna().unique() if 'opponent' in df.columns else []
-        if len(opponents) > 0:
-            opp_choice = st.selectbox("Select Opponent", opponents, key="opp_compare")
-            opp_df = df[df['opponent']==opp_choice]
-        else:
-            st.info("No opponent column found; using all plays for comparison.")
-            opp_df = df.copy()
-            opp_choice = "All Plays"
-    
-        if 'play_type' in opp_df.columns:
-            play_type_pct = opp_df['play_type'].value_counts(normalize=True).reset_index()
-            play_type_pct.columns = ['play_type','pct']
-            play_type_pct['pct'] *= 100
-            fig = px.pie(play_type_pct, names='play_type', values='pct',
-                         title=f"Play Type Distribution vs {opp_choice}",
-                         color_discrete_sequence=px.colors.sequential.Blues)
-            st.plotly_chart(fig, use_container_width=True)
-    
         if 'down' in opp_df.columns:
             summary = opp_df.groupby(['down','yard_group'])['gain_loss'].mean().reset_index()
             summary['gain_loss'] = summary['gain_loss'].round(1)
