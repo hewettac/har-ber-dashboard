@@ -196,20 +196,11 @@ if uploaded_file:
                 fig_concept.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Value:</b> %{z}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_plays.values], axis=-1))
                 st.plotly_chart(fig_concept, use_container_width=True)
 
-                # --- ADDING THE EXCEL-STYLE TABLE HERE ---
-                st.markdown("### Concept Data Worksheet")
+            if 'concept' in df.columns:
+                summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
+                summary = summary[summary['plays'] >= 3]
             
-                # Clean up the summary for the worksheet view
-                worksheet_df = concept_summary.copy()
-                worksheet_df['success_rate'] = (worksheet_df['success_rate'] * 100).round(1).astype(str) + '%'
-                worksheet_df['explosive_rate'] = (worksheet_df['explosive_rate'] * 100).round(1).astype(str) + '%'
-                worksheet_df['avg_gain'] = worksheet_df['avg_gain'].round(1)
-            
-                st.dataframe(
-                worksheet_df.sort_values(['concept', 'yard_group']),
-                use_container_width=True,
-                hide_index=True
-                )
+                st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=
 
     # -------------------------
     # TAB 4: Formation Breakdown
@@ -231,21 +222,8 @@ if uploaded_file:
             fig_form.update_traces(hovertemplate="<b>Formation:</b> %{y}<br><b>Down:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f}y<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_form_plays.values], axis=-1))
             st.plotly_chart(fig_form, use_container_width=True)
 
-            # --- ADDING THE EXCEL-STYLE TABLE HERE ---
-            st.markdown("### Formation Data Worksheet")
-            
-            # Sort by Formation and Down for a clean worksheet view
-            form_worksheet = form_summary.copy().sort_values(['formation', 'down'])
-            form_worksheet['avg_gain'] = form_worksheet['avg_gain'].round(1)
-            
-            st.dataframe(
-                form_worksheet,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            if 'concept' in df.columns:
-                summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
+            if 'formation' in df.columns:
+                summary = df.groupby('formation').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
                 summary = summary[summary['plays'] >= 3]
             
                 st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
