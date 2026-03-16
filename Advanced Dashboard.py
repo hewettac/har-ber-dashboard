@@ -206,6 +206,7 @@ if uploaded_file:
             form_summary = form_summary[form_summary['num_plays'] >= 2]
             pivot_form = form_summary.pivot(index='formation', columns='down', values='avg_gain').fillna(0)
             pivot_form_plays = form_summary.pivot(index='formation', columns='down', values='num_plays').fillna(0)
+            st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
             
             if down_order:
                 existing_downs = [d for d in down_order if d in pivot_form.columns]
@@ -214,6 +215,8 @@ if uploaded_file:
             fig_form = px.imshow(pivot_form, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Down', 'y': 'Formation', 'color': 'Avg Gain'}, title="Average Gain by Formation and Down")
             fig_form.update_traces(hovertemplate="<b>Formation:</b> %{y}<br><b>Down:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f}y<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_form_plays.values], axis=-1))
             st.plotly_chart(fig_form, use_container_width=True)
+
+        
 
     # -------------------------
     # TAB 5: Concept Breakdown
