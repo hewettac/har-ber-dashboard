@@ -153,7 +153,6 @@ if uploaded_file:
     # TAB 2: Gain/Loss Breakdown
     # -------------------------
     with tab2:
-        st.markdown('<div class="section-header">Gain/Loss Breakdown</div>', unsafe_allow_html=True)
         if 'down' in df.columns:
             summary = df.groupby(['down','yard_group']).agg(avg_gain=('gain_loss', 'mean'), num_plays=('gain_loss', 'count')).reset_index()
             pivot_gain = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
@@ -206,7 +205,6 @@ if uploaded_file:
     # TAB 4: Formation Breakdown
     # -------------------------
     with tab4:
-        st.markdown('<div class="section-header">Formation Effectiveness by Down</div>', unsafe_allow_html=True)
         if 'formation' in df.columns and 'down' in df.columns:
             form_summary = df.groupby(['formation', 'down']).agg(avg_gain=('gain_loss', 'mean'), num_plays=('gain_loss', 'count')).reset_index()
             form_summary = form_summary[form_summary['num_plays'] >= 2]
