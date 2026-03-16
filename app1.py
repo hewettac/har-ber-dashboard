@@ -264,7 +264,6 @@ if uploaded_file:
                  Coaches can use this to identify **field zones where the offense is most efficient**.
                  """)
 
-         import plotly.express as px
 
         # Make sure 'success' column exists
          df["success"] = df["gain_loss"] >= 4
