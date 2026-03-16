@@ -250,9 +250,6 @@ if uploaded_file:
     # --------------
 
     with tab3:
-
-        st.markdown("### Play Success Heatmap")
-
         with tab3:
             st.markdown("### Play Success Heatmap")
 
@@ -355,8 +352,6 @@ if uploaded_file:
     from sklearn.preprocessing import LabelEncoder
 
     with tab5:
-
-        st.markdown("### Run / Pass Prediction")
 
         model_df = df.dropna(subset=["down", "distance", "yardline", "play_type"])
 
