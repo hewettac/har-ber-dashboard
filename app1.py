@@ -244,59 +244,51 @@ if uploaded_file:
 
         st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
         st.dataframe(selected, use_container_width=True)
+    # --------------
+    # Tab 3 - Play Success Heatmap
+    # --------------
+   with tab3:
+   
+       st.markdown("### Play Success Heatmap")
+   
+       with st.expander("How to read this chart"):
+           st.write("""
+           This heatmap shows the **success rate of plays by down and field position**.
+           - Darker blue = higher success rate
+           - Lighter blue = lower success rate
+           - Success is defined as gaining **4 or more yards on a play**
+           """)
+   
+       # Ensure success column exists
+       df["success"] = df["gain_loss"] >= 4
+   
+       # Build grouped dataframe
+       heatmap_df = df.groupby(["down", "yard_group"]).agg(
+           success_rate=("success", "mean"),
+           num_plays=("success", "count")
+       ).reset_index()
+   
+       # Create heatmap
+       heatmap_fig = px.imshow(
+           heatmap_df.pivot(index="down", columns="yard_group", values="success_rate"),
+           text_auto=True,
+           aspect="auto",
+           labels=dict(x="Yard Group", y="Down", color="Success Rate"),
+           color_continuous_scale="Blues",
+       )
+   
+       # Add hover data
+       heatmap_fig.update_traces(
+           hovertemplate="<b>Down:</b> %{y}<br>"
+                         "<b>Yard Group:</b> %{x}<br>"
+                         "<b>Success Rate:</b> %{z:.0%}<br>"
+                         "<b>Number of Plays:</b> %{customdata}",
+           customdata=heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").values
+       )
+   
+       # Display chart
+       st.plotly_chart(heatmap_fig, use_container_width=True)
 
-# -------------------------
-    # TAB 3: Concept & Success
-    # -------------------------
-    with tab3:
-        st.markdown("### Play Success Heatmap")
-
-        with st.expander("How to read this chart"):
-            st.write("""
-            This heatmap shows the **success rate of plays by down and field position**.
-            - Darker blue = higher success rate
-            - Lighter blue = lower success rate
-            - Success is defined as gaining **4 or more yards on a play**
-            """)
-
-        # Ensure success column exists
-        df["success"] = df["gain_loss"] >= 4
-
-        # Aggregate data
-        heatmap_df = df.groupby(["down", "yard_group"]).agg(
-            success_rate=("success", "mean"),
-            num_plays=("success", "count")
-        ).reset_index()
-
-        # Pivot
-        pivot_success = heatmap_df.pivot(index="down", columns="yard_group", values="success_rate").fillna(0)
-        pivot_plays = heatmap_df.pivot(index="down", columns="yard_group", values="num_plays").fillna(0)
-
-        # Sort columns by field position
-        existing_yard_cols = [y for y in yard_order if y in pivot_success.columns]
-        if existing_yard_cols:
-            pivot_success = pivot_success[existing_yard_cols]
-            pivot_plays = pivot_plays[existing_yard_cols]
-
-        heatmap_fig = px.imshow(
-            pivot_success,
-            text_auto=".1%",
-            aspect="auto",
-            labels=dict(x="Yard Group", y="Down", color="Success Rate"),
-            color_continuous_scale="Blues",
-            template='plotly_dark'
-        )
-
-        # The fix for the error: explicitly using np.stack on pivoted values
-        heatmap_fig.update_traces(
-            hovertemplate="<b>Down:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Success:</b> %{z:.1%}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>",
-            customdata=np.stack([pivot_plays.values], axis=-1)
-        )
-        
-        if 'down_order' in locals():
-            heatmap_fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-
-        st.plotly_chart(heatmap_fig, use_container_width=True)
 
     # --------------
     # Tab 4 - Concept Effectiveness
