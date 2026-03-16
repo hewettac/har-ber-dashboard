@@ -249,14 +249,11 @@ if uploaded_file:
     # Tab 3 - heatmap
     # --------------
 
-    with tab3:
 
-        st.markdown("### Play Success Heatmap")
-
-        with tab3:
+      with tab3:
             st.markdown("### Play Success Heatmap")
 
-            with st.expander("How to read this chart"):
+         with st.expander("How to read this chart"):
                 st.write("""
                 This heatmap shows the **success rate of plays by down and field position**.
 
@@ -355,9 +352,6 @@ if uploaded_file:
     from sklearn.preprocessing import LabelEncoder
 
     with tab5:
-
-        st.markdown("### Run / Pass Prediction")
-
         model_df = df.dropna(subset=["down", "distance", "yardline", "play_type"])
 
         le = LabelEncoder()
