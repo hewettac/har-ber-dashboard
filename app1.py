@@ -5,7 +5,7 @@ import plotly.express as px
 # -------------------------
 # Page Config
 # -------------------------
-st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
+st.set_page_config(page_title="Har‑Ber Basic Analytics", layout="wide")
 
 st.markdown("""
 <style>
@@ -59,7 +59,7 @@ st.sidebar.markdown('</div>', unsafe_allow_html=True)
 # -------------------------
 # Sidebar Upload
 # -------------------------
-st.sidebar.title("Har‑Ber Football Dashboard")
+st.sidebar.title("Har‑Ber Basic Dashboard")
 uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx","xls"])
 
 if uploaded_file:
