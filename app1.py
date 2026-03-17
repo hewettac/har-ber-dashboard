@@ -256,7 +256,8 @@ if uploaded_file:
             with st.expander("How to read this chart"):
                 st.write("""
                 This heatmap shows the **success rate of plays by down and field position**.
-                  **Success:** Plays gaining ≥ 4 yards
+
+                - Success: Plays gaining ≥ 4 yards
                 - Darker blue = higher success rate
                 - Lighter blue = lower success rate
                 - Success is defined as gaining **4 or more yards on a play**
