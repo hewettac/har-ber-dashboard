@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 # -------------------------
 # Page Config
 # -------------------------
-st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
+st.set_page_config(page_title="Har‑Ber Advanced Analytics", layout="wide")
 
 # -------------------------
 # Custom CSS (Dark Mode + Cards)
@@ -38,7 +38,7 @@ st.sidebar.markdown('</div>', unsafe_allow_html=True)
 # -------------------------
 # Sidebar Upload
 # -------------------------
-st.sidebar.title("Har‑Ber Football Dashboard")
+st.sidebar.title("Har‑Ber Advanced Analytics")
 uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx", "xls"])
 
 if uploaded_file:
