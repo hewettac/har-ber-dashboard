@@ -9,6 +9,33 @@ from sklearn.metrics import accuracy_score
 from sklearn.ensemble import RandomForestClassifier
 
 
+
+
+
+# ------------------------- GENERAL COLUMN MAPPING -------------------------
+# Define COLUMN_MAP globally so it can be used for both base_df and uploaded_df
+COLUMN_MAP = {
+    "down": ["down","dn"],
+    "distance":["dist","togo","yards to go","ydstogo"],
+    "yardline":["yard ln","spot","ball on"],
+    "concept":["off play"],
+    "play_type":["play type","playtype","type"],
+    "play_direction":["play dir"],
+    "gain_loss":["gn/ls"]
+}
+
+def standardize_columns(df_input, column_map):
+    """Applies column renaming based on a predefined map."""
+    df_output = df_input.copy()
+    df_output.columns = df_output.columns.str.lower().str.strip()
+    rename_dict = {}
+    for standard_name, possible_names in column_map.items():
+        for col in df_output.columns:
+            if col in possible_names:
+                rename_dict[col] = standard_name
+    return df_output.rename(columns=rename_dict)
+
+
 # -------------------------
 # Page Config
 # -------------------------
@@ -71,26 +98,7 @@ uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx",
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    df.columns = df.columns.str.lower().str.strip()
-
-    # -------------------------
-    # Column Renaming
-    # -------------------------
-    COLUMN_MAP = {
-        "down": ["down","dn"],
-        "distance":["dist","togo","yards to go","ydstogo"],
-        "yardline":["yard ln","spot","ball on"],
-        "concept":["off play"],
-        "play_type":["play type","playtype","type"],
-        "play_direction":["play dir"],
-        "gain_loss":["gn/ls"]
-    }
-    rename_dict = {}
-    for s,v in COLUMN_MAP.items():
-        for col in df.columns:
-            if col in v:
-                rename_dict[col] = s
-    df = df.rename(columns=rename_dict)
+    df = standardize_columns(df, COLUMN_MAP)
 
     # -------------------------
     # Custom Yard Groups
@@ -387,7 +395,8 @@ if uploaded_file:
         # -------------------------
         @st.cache_data
         def load_base_data():
-            return pd.read_csv("AllPlaysTrainData.csv")
+            raw_base_df = pd.read_csv("AllPlaysTrainData.csv")
+            return standardize_columns(raw_base_df, COLUMN_MAP)
 
 
         # -------------------------
@@ -396,21 +405,21 @@ if uploaded_file:
         @st.cache_resource
         def train_model(base_df, weekly_df):
 
-            # Feature engineering
-            base_df = add_features(base_df)
-            weekly_df = add_features(weekly_df)
+            # Feature engineering (already standardized columns by now)
+            base_df_fe = add_features(base_df)
+            weekly_df_fe = add_features(weekly_df)
 
             # Clean missing values
-            base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
-            weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+            base_df_fe = base_df_fe.dropna(subset=["down", "distance", "yardline", "play_type"])
+            weekly_df_fe = weekly_df_fe.dropna(subset=["down", "distance", "yardline", "play_type"])
 
             # Encode play_type
-            base_df["play_type_encoded"] = base_df["play_type"].astype("category").cat.codes
-            weekly_df["play_type_encoded"] = weekly_df["play_type"].astype("category").cat.codes
+            base_df_fe["play_type_encoded"] = base_df_fe["play_type"].astype("category").cat.codes
+            weekly_df_fe["play_type_encoded"] = weekly_df_fe["play_type"].astype("category").cat.codes
 
             # Features + target
-            X = base_df[["down", "distance_bucket", "field_zone"]]
-            y = base_df["play_type_encoded"]
+            X = base_df_fe[["down", "distance_bucket", "field_zone"]]
+            y = base_df_fe["play_type_encoded"]
 
             # Train/test split
             X_train, X_test, y_train, y_test = train_test_split(
@@ -425,7 +434,7 @@ if uploaded_file:
             preds = model.predict(X_test)
             acc = accuracy_score(y_test, preds)
 
-            return model, acc, weekly_df
+            return model, acc, weekly_df_fe
 
 
         # -------------------------
@@ -434,7 +443,7 @@ if uploaded_file:
         base_df = load_base_data()
 
         # Use the already uploaded and processed `df` from the sidebar as the weekly_df
-        model, acc, weekly_df = train_model(base_df, df)
+        model, acc, weekly_df_fe = train_model(base_df, df)
 
         st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
 
