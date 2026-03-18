@@ -452,28 +452,18 @@ if uploaded_file:
        # Train model (cached = FAST)
             model, le = train_model(base_df, weekly_df)
    
-       # -------------------------
-       # Inputs
-       # -------------------------
-         col1, col2, col3 = st.columns(3)
-       with col1:
-          pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
-       with col2:
-          pred_dist = st.slider("Distance", 1, 20, 7)
-   
-       with col3:
-         pred_yard = st.slider("Yardline", -50, 50, 0)
-   
-       # Build input
-         input_df = pd.DataFrame({
-           "down": [pred_down],
-           "distance": [pred_dist],
-           "yardline": [pred_yard]
-         })
-   
-         input_df = add_features(input_df)
-   
-         features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+            st.markdown("## 🎯 Prediction Results")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Predicted Play", predicted_play)
+            
+            with col2:
+                st.metric("Confidence", f"{top_confidence:.1f}%")
+            
+            with col3:
+                st.metric("Model Accuracy", f"{overall_accuracy*100:.1f}%")
    
        # -------------------------
        # Prediction
