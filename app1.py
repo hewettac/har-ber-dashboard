@@ -455,16 +455,16 @@ if uploaded_file:
        # -------------------------
        # Inputs
        # -------------------------
-          col1, col2, col3 = st.columns(3)
+         col1, col2, col3 = st.columns(3)
    
-          with col1:
-              pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
+         with col1:
+           pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
    
-          with col2:
-              pred_dist = st.slider("Distance", 1, 20, 7)
+         with col2:
+           pred_dist = st.slider("Distance", 1, 20, 7)
    
-          with col3:
-              pred_yard = st.slider("Yardline", -50, 50, 0)
+         with col3:
+           pred_yard = st.slider("Yardline", -50, 50, 0)
    
        # Build input
           input_df = pd.DataFrame({
