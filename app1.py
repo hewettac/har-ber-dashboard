@@ -5,10 +5,11 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
+
 # -------------------------
 # Page Config
 # -------------------------
-st.set_page_config(page_title="Har‑Ber Basic Analytics", layout="wide")
+st.set_page_config(page_title="Har‑Ber Football Analytics", layout="wide")
 
 st.markdown("""
 <style>
@@ -62,7 +63,7 @@ st.sidebar.markdown('</div>', unsafe_allow_html=True)
 # -------------------------
 # Sidebar Upload
 # -------------------------
-st.sidebar.title("Har‑Ber Basic Dashboard")
+st.sidebar.title("Har‑Ber Football Dashboard")
 uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx","xls"])
 
 if uploaded_file:
@@ -253,6 +254,9 @@ if uploaded_file:
     # --------------
 
     with tab3:
+
+        st.markdown("### Play Success Heatmap")
+
         with tab3:
             st.markdown("### Play Success Heatmap")
 
@@ -260,10 +264,11 @@ if uploaded_file:
                 st.write("""
                 This heatmap shows the **success rate of plays by down and field position**.
 
-                - Success: Plays gaining ≥ 4 yards
                 - Darker blue = higher success rate
                 - Lighter blue = lower success rate
                 - Success is defined as gaining **4 or more yards on a play**
+
+                Coaches can use this to identify **field zones where the offense is most efficient**.
                 """)
 
         import plotly.express as px
@@ -345,192 +350,195 @@ if uploaded_file:
             st.plotly_chart(bubble, use_container_width=True)
 
             st.dataframe(concept_stats)
+        # ------------------------
+        # Tab 5
+        # ----------------------------
+
+    with tab5:
+
+        st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
 
 
-       #------------------------
-       # Tab 5
-       #----------------------------
+        # -------------------------
+        # Feature Engineering
+        # -------------------------
+        def add_features(df):
+            df = df.copy()
 
-        with tab5:
-         
-             st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
-         
-             # -------------------------
-             # Feature Engineering
-             # -------------------------
-             def add_features(df):
-                 df = df.copy()
-         
-                 df["distance_bucket"] = pd.cut(
-                     df["distance"],
-                     bins=[0, 3, 7, 20],
-                     labels=[0, 1, 2]
-                 ).astype(float)
-         
-                 df["field_zone"] = pd.cut(
-                     df["yardline"],
-                     bins=[-50, -20, 20, 50],
-                     labels=[0, 1, 2]  # backed up, midfield, redzone-ish
-                 ).astype(float)
-         
-                 return df
-         
-             # -------------------------
-             # Load Base Dataset (cached)
-             # -------------------------
-             @st.cache_data
-             def load_base_data():
-                 return pd.read_csv("AllPlaysTrainData.csv")
-         
-             # -------------------------
-             # Train Model (cached)
-             # -------------------------
-             from sklearn.model_selection import train_test_split
-             from sklearn.metrics import accuracy_score
-         
-             @st.cache_resource
-             def train_model(base_df, weekly_df):
-         
-                 # Feature engineering
-                 base_df = add_features(base_df)
-                 weekly_df = add_features(weekly_df)
-         
-                 # Clean missing values
-                 base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
-                 weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
-         
-                 # Encode play_type
-                 base_df["play_type_encoded"] = base_df["play_type"].astype("category").cat.codes
-                 weekly_df["play_type_encoded"] = weekly_df["play_type"].astype("category").cat.codes
-         
-                 # Features + target
-                 X = base_df[["down", "distance_bucket", "field_zone"]]
-                 y = base_df["play_type_encoded"]
-         
-                 # Train/test split
-                 X_train, X_test, y_train, y_test = train_test_split(
-                     X, y, test_size=0.2, random_state=42
-                 )
-         
-                 # Train model
-                 from sklearn.ensemble import RandomForestClassifier
-                 model = RandomForestClassifier(n_estimators=300, random_state=42)
-                 model.fit(X_train, y_train)
-         
-                 # Accuracy
-                 preds = model.predict(X_test)
-                 acc = accuracy_score(y_test, preds)
-         
-                 return model, acc, weekly_df
-         
-             # -------------------------
-             # Load Data + Train Model
-             # -------------------------
-             base_df = load_base_data()
-         
-             st.subheader("Weekly Data Upload")
-             weekly_file = st.file_uploader("Upload Weekly CSV", type=["csv"])
-         
-             if weekly_file:
-                 weekly_df = pd.read_csv(weekly_file)
-         
-                 model, acc, weekly_df = train_model(base_df, weekly_df)
-         
-                 st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
-         
-                 # -------------------------
-                 # Prediction Interface
-                 # -------------------------
-                 st.markdown("### Predict Play Type")
-         
-                 col1, col2, col3 = st.columns(3)
-         
-                 with col1:
-                     down = st.selectbox("Down", [1, 2, 3, 4])
-         
-                 with col2:
-                     distance = st.number_input("Distance", min_value=1, max_value=30, value=5)
-         
-                 with col3:
-                     yardline = st.number_input("Yardline (negative = backed up)", min_value=-50, max_value=50, value=0)
-         
-                 # Build input row
-                 input_df = pd.DataFrame([{
-                     "down": down,
-                     "distance": distance,
-                     "yardline": yardline
-                 }])
-         
-                 input_df = add_features(input_df)
-         
-                 # Predict
-                 pred = model.predict(input_df[["down", "distance_bucket", "field_zone"]])[0]
-         
-                 # Decode play type
-                 play_type_map = dict(
-                     enumerate(base_df["play_type"].astype("category").cat.categories)
-                 )
-                 predicted_play = play_type_map[pred]
-         
-                 st.markdown(f"### 🧠 Predicted Play: **{predicted_play}**")
-         
-                 # -------------------------
-                 # Probability Breakdown
-                 # -------------------------
-                 probs = model.predict_proba(input_df[["down", "distance_bucket", "field_zone"]])[0]
-                 prob_df = pd.DataFrame({
-                     "Play Type": base_df["play_type"].astype("category").cat.categories,
-                     "Probability": probs
-                 }).sort_values("Probability", ascending=False)
-         
-                 st.markdown("### Probability Breakdown")
-                 st.dataframe(prob_df, use_container_width=True)
-         
-             else:
-                 st.info("Upload a weekly CSV to activate the prediction system.")
+            df["distance_bucket"] = pd.cut(
+                df["distance"],
+                bins=[0, 3, 7, 20],
+                labels=[0, 1, 2]
+            ).astype(float)
 
-            st.markdown("### Concept Effectiveness")
+            df["field_zone"] = pd.cut(
+                df["yardline"],
+                bins=[-50, -20, 20, 50],
+                labels=[0, 1, 2]  # backed up, midfield, redzone-ish
+            ).astype(float)
 
-            with st.expander("How to read this chart"):
-                st.write("""
-                This chart evaluates offensive concepts using three metrics:
+            return df
 
-                **X-axis:** Success Rate (% of plays gaining 4+ yards)
 
-                **Y-axis:** Average yards gained per play
+        # -------------------------
+        # Load Base Dataset (cached)
+        # -------------------------
+        @st.cache_data
+        def load_base_data():
+            return pd.read_csv("AllPlaysTrainData.csv")
 
-                **Bubble Size:** Number of times the concept was run
 
-                The best concepts are large and towards the right:
-                • High success rate
-                • High average gain
-                • Large sample size
-                """)
+        # -------------------------
+        # Train Model (cached)
+        # -------------------------
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import accuracy_score
 
-            concept_stats = (
-                df.groupby("concept")
-                .agg(
-                    avg_gain=("gain_loss", "mean"),
-                    success_rate=("gain_loss", lambda x: (x >= 4).mean()),
-                    plays=("gain_loss", "count")
-                )
-                .reset_index()
+
+        @st.cache_resource
+        def train_model(base_df, weekly_df):
+
+            # Feature engineering
+            base_df = add_features(base_df)
+            weekly_df = add_features(weekly_df)
+
+            # Clean missing values
+            base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+            weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+
+            # Encode play_type
+            base_df["play_type_encoded"] = base_df["play_type"].astype("category").cat.codes
+            weekly_df["play_type_encoded"] = weekly_df["play_type"].astype("category").cat.codes
+
+            # Features + target
+            X = base_df[["down", "distance_bucket", "field_zone"]]
+            y = base_df["play_type_encoded"]
+
+            # Train/test split
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
             )
 
-            concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
+            # Train model
+            from sklearn.ensemble import RandomForestClassifier
+            model = RandomForestClassifier(n_estimators=300, random_state=42)
+            model.fit(X_train, y_train)
 
-            bubble = px.scatter(
-                concept_stats,
-                x="success_rate",
-                y="avg_gain",
-                size="plays",
-                hover_name="concept",
-                template="plotly_dark"
+            # Accuracy
+            preds = model.predict(X_test)
+            acc = accuracy_score(y_test, preds)
+
+            return model, acc, weekly_df
+
+
+        # -------------------------
+        # Load Data + Train Model
+        # -------------------------
+        base_df = load_base_data()
+
+        st.subheader("Weekly Data Upload")
+        weekly_file = st.file_uploader("Upload Weekly CSV", type=["csv"])
+
+        if weekly_file:
+            weekly_df = pd.read_csv(weekly_file)
+
+            model, acc, weekly_df = train_model(base_df, weekly_df)
+
+            st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
+
+            # -------------------------
+            # Prediction Interface
+            # -------------------------
+            st.markdown("### Predict Play Type")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                down = st.selectbox("Down", [1, 2, 3, 4])
+
+            with col2:
+                distance = st.number_input("Distance", min_value=1, max_value=30, value=5)
+
+            with col3:
+                yardline = st.number_input("Yardline (negative = backed up)", min_value=-50, max_value=50, value=0)
+
+            # Build input row
+            input_df = pd.DataFrame([{
+                "down": down,
+                "distance": distance,
+                "yardline": yardline
+            }])
+
+            input_df = add_features(input_df)
+
+            # Predict
+            pred = model.predict(input_df[["down", "distance_bucket", "field_zone"]])[0]
+
+            # Decode play type
+            play_type_map = dict(
+                enumerate(base_df["play_type"].astype("category").cat.categories)
             )
+            predicted_play = play_type_map[pred]
 
-            st.plotly_chart(bubble, use_container_width=True)
+            st.markdown(f"### 🧠 Predicted Play: **{predicted_play}**")
 
-            st.dataframe(concept_stats)
+            # -------------------------
+            # Probability Breakdown
+            # -------------------------
+            probs = model.predict_proba(input_df[["down", "distance_bucket", "field_zone"]])[0]
+            prob_df = pd.DataFrame({
+                "Play Type": base_df["play_type"].astype("category").cat.categories,
+                "Probability": probs
+            }).sort_values("Probability", ascending=False)
+
+            st.markdown("### Probability Breakdown")
+            st.dataframe(prob_df, use_container_width=True)
+
+        else:
+            st.info("Upload a weekly CSV to activate the prediction system.")
+
+    st.markdown("### Concept Effectiveness")
+
+    with st.expander("How to read this chart"):
+        st.write("""
+             This chart evaluates offensive concepts using three metrics:
+
+             **X-axis:** Success Rate (% of plays gaining 4+ yards)
+
+             **Y-axis:** Average yards gained per play
+
+             **Bubble Size:** Number of times the concept was run
+
+             The best concepts are large and towards the right:
+             • High success rate
+             • High average gain
+             • Large sample size
+             """)
+
+    concept_stats = (
+        df.groupby("concept")
+        .agg(
+            avg_gain=("gain_loss", "mean"),
+            success_rate=("gain_loss", lambda x: (x >= 4).mean()),
+            plays=("gain_loss", "count")
+        )
+        .reset_index()
+    )
+
+    concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
+
+    bubble = px.scatter(
+        concept_stats,
+        x="success_rate",
+        y="avg_gain",
+        size="plays",
+        hover_name="concept",
+        template="plotly_dark"
+    )
+
+    st.plotly_chart(bubble, use_container_width=True)
+
+    st.dataframe(concept_stats)
 
 
 
