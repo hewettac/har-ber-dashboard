@@ -483,9 +483,9 @@ if uploaded_file:
           # -------------------------
           # Situation Insight
           # -------------------------
-             st.markdown("### 📊 Situation Insight")
+            st.markdown("### 📊 Situation Insight")
       
-             if pred_down == 3 and pred_dist >= 7:
-                 st.info("Likely PASS situation (3rd & long tendency)")
-             elif pred_down == 1 and pred_dist <= 3:
-                 st.info("High RUN probability (short yardage)")
+            if pred_down == 3 and pred_dist >= 7:
+               st.info("Likely PASS situation (3rd & long tendency)")
+            elif pred_down == 1 and pred_dist <= 3:
+               st.info("High RUN probability (short yardage)")
