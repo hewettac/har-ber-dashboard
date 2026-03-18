@@ -456,41 +456,39 @@ if uploaded_file:
        # Inputs
        # -------------------------
          col1, col2, col3 = st.columns(3)
+       with col1:
+          pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
+       with col2:
+          pred_dist = st.slider("Distance", 1, 20, 7)
    
-         with col1:
-           pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
-   
-         with col2:
-           pred_dist = st.slider("Distance", 1, 20, 7)
-   
-         with col3:
-           pred_yard = st.slider("Yardline", -50, 50, 0)
+       with col3:
+         pred_yard = st.slider("Yardline", -50, 50, 0)
    
        # Build input
-          input_df = pd.DataFrame({
-              "down": [pred_down],
-              "distance": [pred_dist],
-              "yardline": [pred_yard]
-          })
+         input_df = pd.DataFrame({
+           "down": [pred_down],
+           "distance": [pred_dist],
+           "yardline": [pred_yard]
+         })
    
-          input_df = add_features(input_df)
+         input_df = add_features(input_df)
    
-          features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+         features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
    
        # -------------------------
        # Prediction
        # -------------------------
-          probs = model.predict_proba(input_df[features])[0]
+         probs = model.predict_proba(input_df[features])[0]
    
-          top_indices = np.argsort(probs)[::-1][:3]
+         top_indices = np.argsort(probs)[::-1][:3]
    
-          st.markdown("### 🎯 Top Play Predictions")
+         st.markdown("### 🎯 Top Play Predictions")
    
-          for i in top_indices:
-              play = le.inverse_transform([i])[0]
-              confidence = probs[i] * 100
+         for i in top_indices:
+           play = le.inverse_transform([i])[0]
+           confidence = probs[i] * 100
    
-              st.metric(play, f"{confidence:.1f}%")
+           st.metric(play, f"{confidence:.1f}%")
    
        # -------------------------
        # Situation Insight
