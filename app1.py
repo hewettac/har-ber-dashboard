@@ -378,7 +378,7 @@ if uploaded_file:
    # -------------------------
     @st.cache_data
     def load_base_data():
-        return pd.read_csv("AllPlaysTrainData.xlsx")
+        return pd.read_csv("AllPlaysTrainData.csv")
    
    # -------------------------
    # Train Model (cached)
