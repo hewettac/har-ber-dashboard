@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from xgboost import XGBClassifier
 
 # -------------------------
 # Page Config
@@ -348,12 +351,7 @@ if uploaded_file:
     # --------------
     # Tab 5 (ELITE Play Prediction System)
     # --------------
-   
-    import pandas as pd
-    import numpy as np
-    import streamlit as st
-    from sklearn.preprocessing import LabelEncoder
-    from xgboost import XGBClassifier
+
    
     # -------------------------
     # Feature Engineering
