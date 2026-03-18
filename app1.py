@@ -465,27 +465,27 @@ if uploaded_file:
             with col3:
                 st.metric("Model Accuracy", f"{overall_accuracy*100:.1f}%")
    
-       # -------------------------
-       # Prediction
-       # -------------------------
-         probs = model.predict_proba(input_df[features])[0]
-   
-         top_indices = np.argsort(probs)[::-1][:3]
-   
-         st.markdown("### 🎯 Top Play Predictions")
-   
-         for i in top_indices:
-           play = le.inverse_transform([i])[0]
-           confidence = probs[i] * 100
-   
-           st.metric(play, f"{confidence:.1f}%")
-   
-       # -------------------------
-       # Situation Insight
-       # -------------------------
-          st.markdown("### 📊 Situation Insight")
-   
-          if pred_down == 3 and pred_dist >= 7:
-              st.info("Likely PASS situation (3rd & long tendency)")
-          elif pred_down == 1 and pred_dist <= 3:
-              st.info("High RUN probability (short yardage)")
+          # -------------------------
+          # Prediction
+          # -------------------------
+            probs = model.predict_proba(input_df[features])[0]
+      
+            top_indices = np.argsort(probs)[::-1][:3]
+      
+            st.markdown("### 🎯 Top Play Predictions")
+      
+            for i in top_indices:
+              play = le.inverse_transform([i])[0]
+              confidence = probs[i] * 100
+      
+              st.metric(play, f"{confidence:.1f}%")
+      
+          # -------------------------
+          # Situation Insight
+          # -------------------------
+             st.markdown("### 📊 Situation Insight")
+      
+             if pred_down == 3 and pred_dist >= 7:
+                 st.info("Likely PASS situation (3rd & long tendency)")
+             elif pred_down == 1 and pred_dist <= 3:
+                 st.info("High RUN probability (short yardage)")
