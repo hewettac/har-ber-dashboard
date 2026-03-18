@@ -302,6 +302,7 @@ if uploaded_file:
     # Tab 4 - Concept Effectiveness
     # --------------
         with tab4:
+            
             st.markdown("### Concept Effectiveness")
 
             with st.expander("How to read this chart"):
@@ -345,10 +346,12 @@ if uploaded_file:
 
             st.dataframe(concept_stats)
 
-       #-----------------------
+
+       #------------------------
        # Tab 5
-       #-----------------------
-           with tab5:
+       #----------------------------
+
+        with tab5:
          
              st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
          
@@ -486,8 +489,48 @@ if uploaded_file:
              else:
                  st.info("Upload a weekly CSV to activate the prediction system.")
 
-    # --------------
-    # Tab 5
-    # --------------
+            st.markdown("### Concept Effectiveness")
+
+            with st.expander("How to read this chart"):
+                st.write("""
+                This chart evaluates offensive concepts using three metrics:
+
+                **X-axis:** Success Rate (% of plays gaining 4+ yards)
+
+                **Y-axis:** Average yards gained per play
+
+                **Bubble Size:** Number of times the concept was run
+
+                The best concepts are large and towards the right:
+                • High success rate
+                • High average gain
+                • Large sample size
+                """)
+
+            concept_stats = (
+                df.groupby("concept")
+                .agg(
+                    avg_gain=("gain_loss", "mean"),
+                    success_rate=("gain_loss", lambda x: (x >= 4).mean()),
+                    plays=("gain_loss", "count")
+                )
+                .reset_index()
+            )
+
+            concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
+
+            bubble = px.scatter(
+                concept_stats,
+                x="success_rate",
+                y="avg_gain",
+                size="plays",
+                hover_name="concept",
+                template="plotly_dark"
+            )
+
+            st.plotly_chart(bubble, use_container_width=True)
+
+            st.dataframe(concept_stats)
+
 
 
