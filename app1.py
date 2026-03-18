@@ -439,10 +439,10 @@ if uploaded_file:
         st.subheader("Weekly Data Upload")
         weekly_file = st.file_uploader("Upload Weekly CSV", type=["csv"])
 
-        if weekly_file:
-            weekly_df = pd.read_csv(weekly_file)
+        if uploaded_file:
+            uploaded_df = pd.read_csv(uploaded_file)
 
-            model, acc, weekly_df = train_model(base_df, weekly_df)
+            model, acc, weekly_df = train_model(base_df, uploaded_df)
 
             st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
 
