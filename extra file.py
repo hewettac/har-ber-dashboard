@@ -600,37 +600,160 @@ with tab4:
         st.plotly_chart(bubble, use_container_width=True)
         st.dataframe(concept_stats, use_container_width=True)
 
-# -------------------------
-# Tab 5
-# -------------------------
+# ------------------------
+# Tab 5 - Play Prediction
+# ------------------------
 with tab5:
+
     st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
 
+    # -------------------------
+    # Feature Engineering
+    # -------------------------
+    def add_features(df):
+        df = df.copy()
+
+        df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
+        df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
+        df["down"] = pd.to_numeric(df["down"], errors="coerce")
+
+        df["distance_bucket"] = pd.cut(
+            df["distance"],
+            bins=[-1, 3, 7, 100],
+            labels=[0, 1, 2]
+        ).astype(float)
+
+        df["field_zone"] = pd.cut(
+            df["yardline"],
+            bins=[-51, -20, 20, 51],
+            labels=[0, 1, 2]
+        ).astype(float)
+
+        return df
+
+    # -------------------------
+    # Load Base Dataset
+    # -------------------------
+    @st.cache_data
+    def load_base_data():
+        base = pd.read_csv("AllPlaysTrainData.csv")
+        base.columns = base.columns.str.lower().str.strip()
+        return base
+
+    # -------------------------
+    # Train Model
+    # -------------------------
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score
+    from sklearn.preprocessing import LabelEncoder
+
+    @st.cache_resource
+    def train_model(base_df, weekly_df):
+
+        base_df = base_df.copy()
+        weekly_df = weekly_df.copy()
+
+        base_df.columns = base_df.columns.str.lower().str.strip()
+        weekly_df.columns = weekly_df.columns.str.lower().str.strip()
+
+        required_cols = ["down", "distance", "yardline", "play_type"]
+        for col in required_cols:
+            if col not in base_df.columns:
+                raise ValueError(f"Base data missing column: {col}")
+            if col not in weekly_df.columns:
+                raise ValueError(f"Weekly data missing column: {col}")
+
+        base_df = add_features(base_df)
+        weekly_df = add_features(weekly_df)
+
+        base_df = base_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
+        weekly_df = weekly_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
+
+        if weekly_df.empty:
+            raise ValueError("Weekly dataset has no usable rows.")
+
+        # 🔥 Transfer Learning Weights
+        base_df["weight"] = 1
+        weekly_df["weight"] = 6
+
+        combined = pd.concat([base_df, weekly_df], ignore_index=True)
+
+        features = ["down","distance","yardline","distance_bucket","field_zone"]
+
+        # 🔥 REMOVE RARE CLASSES BEFORE ENCODING (fixes your error)
+        combined["play_type"] = combined["play_type"].astype(str)
+        play_counts = combined["play_type"].value_counts()
+        valid_play_types = play_counts[play_counts >= 2].index
+
+        combined = combined[combined["play_type"].isin(valid_play_types)].reset_index(drop=True)
+
+        if combined["play_type"].nunique() < 2:
+            raise ValueError("Not enough play types to train model.")
+
+        # 🔥 NOW encode (ensures labels = 0..n-1)
+        le = LabelEncoder()
+        combined["play_type_encoded"] = le.fit_transform(combined["play_type"])
+
+        X = combined[features].reset_index(drop=True)
+        y = combined["play_type_encoded"].reset_index(drop=True)
+        weights = combined["weight"].reset_index(drop=True)
+
+        X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+            X, y, weights, test_size=0.2, random_state=42, stratify=y
+        )
+
+        model = XGBClassifier(
+            n_estimators=400,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            objective="multi:softprob",
+            eval_metric="mlogloss",
+            random_state=42
+        )
+
+        model.fit(X_train, y_train, sample_weight=w_train)
+
+        preds = model.predict(X_test)
+        accuracy = accuracy_score(y_test, preds)
+
+        return model, le, accuracy, X_test, y_test, features
+
+    # -------------------------
+    # Load Data
+    # -------------------------
     try:
         base_df = load_base_data()
     except Exception as e:
-        st.error(f"Error loading AllPlaysTrainData.csv: {e}")
+        st.error(f"Error loading base dataset: {e}")
         st.stop()
 
     weekly_df = df.copy()
 
     try:
-        model, le, overall_accuracy, X_test, y_test, features = train_prediction_model(base_df, weekly_df)
+        model, le, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
     except Exception as e:
         st.error(f"Model training failed: {e}")
         st.stop()
 
-    st.success(f"Overall Model Accuracy: {overall_accuracy:.2%}")
+    st.success(f"Model Accuracy: {accuracy:.2%}")
 
+    # -------------------------
+    # User Inputs
+    # -------------------------
     st.markdown("### Predict Play")
 
     col1, col2, col3 = st.columns(3)
+
     with col1:
-        pred_down = st.selectbox("Down", [1, 2, 3, 4])
+        pred_down = st.selectbox("Down", [1,2,3,4])
+
     with col2:
-        pred_dist = st.number_input("Distance", min_value=1, max_value=30, value=5)
+        pred_dist = st.number_input("Distance", 1, 30, 5)
+
     with col3:
-        pred_yard = st.number_input("Yardline", min_value=-50, max_value=50, value=0)
+        pred_yard = st.number_input("Yardline", -50, 50, 0)
 
     input_df = pd.DataFrame([{
         "down": pred_down,
@@ -638,15 +761,17 @@ with tab5:
         "yardline": pred_yard
     }])
 
-    input_df = add_prediction_features(input_df)
-    input_X = input_df[features]
+    input_df = add_features(input_df)
 
-    probs = model.predict_proba(input_X)[0]
-    pred_class = int(np.argmax(probs))
+    probs = model.predict_proba(input_df[features])[0]
+
+    pred_class = np.argmax(probs)
     predicted_play = le.inverse_transform([pred_class])[0]
-    prediction_confidence = float(np.max(probs))
+    confidence = probs[pred_class]
 
-    # Situation-specific accuracy
+    # -------------------------
+    # Situation Accuracy
+    # -------------------------
     mask = (
         (X_test["down"] == pred_down) &
         (abs(X_test["distance"] - pred_dist) <= 2) &
@@ -657,48 +782,56 @@ with tab5:
     similar_y = y_test[mask]
 
     if len(similar_X) >= 10:
-        situation_accuracy = accuracy_score(similar_y, model.predict(similar_X))
+        situation_acc = accuracy_score(similar_y, model.predict(similar_X))
     else:
-        situation_accuracy = None
+        situation_acc = None
 
+    # -------------------------
+    # Display Results
+    # -------------------------
     st.markdown("### Results")
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.metric("Predicted Play", predicted_play)
-    with m2:
-        st.metric("Prediction Confidence", f"{prediction_confidence:.1%}")
-    with m3:
-        st.metric("Overall Model Accuracy", f"{overall_accuracy:.1%}")
+    c1, c2, c3 = st.columns(3)
 
-    if situation_accuracy is not None:
-        st.metric("Situation Accuracy", f"{situation_accuracy:.1%}")
+    c1.metric("Predicted Play", predicted_play)
+    c2.metric("Confidence", f"{confidence:.1%}")
+    c3.metric("Model Accuracy", f"{accuracy:.1%}")
+
+    if situation_acc:
+        st.metric("Situation Accuracy", f"{situation_acc:.1%}")
     else:
-        st.info("Not enough similar plays to calculate situation accuracy.")
+        st.info("Not enough similar plays for situation accuracy")
 
-    st.markdown("### Top 3 Likely Plays")
+    # -------------------------
+    # Top 3 Plays
+    # -------------------------
+    st.markdown("### Top 3 Plays")
 
-    top_indices = np.argsort(probs)[::-1][:3]
-    top_df = pd.DataFrame({
-        "Play Type": le.inverse_transform(top_indices),
-        "Probability": [probs[i] for i in top_indices]
-    })
-    top_df["Probability"] = top_df["Probability"].map(lambda x: f"{x:.1%}")
-    st.dataframe(top_df, use_container_width=True)
+    top_idx = np.argsort(probs)[::-1][:3]
 
-    st.markdown("### Full Probability Breakdown")
+    for i in top_idx:
+        st.write(f"{le.inverse_transform([i])[0]} — {probs[i]:.1%}")
+
+    # -------------------------
+    # Probability Table
+    # -------------------------
+    st.markdown("### Full Probabilities")
 
     prob_df = pd.DataFrame({
-        "Play Type": le.inverse_transform(np.arange(len(probs))),
+        "Play": le.inverse_transform(np.arange(len(probs))),
         "Probability": probs
     }).sort_values("Probability", ascending=False)
+
     prob_df["Probability"] = prob_df["Probability"].map(lambda x: f"{x:.2%}")
+
     st.dataframe(prob_df, use_container_width=True)
 
+    # -------------------------
+    # Insight
+    # -------------------------
     st.markdown("### Situation Insight")
+
     if pred_down == 3 and pred_dist >= 7:
-        st.info("Likely passing tendency: long-yardage third down.")
+        st.info("Likely PASS situation")
     elif pred_down == 1 and pred_dist <= 3:
-        st.info("Likely run tendency: short-yardage first down.")
-    elif pred_down == 4:
-        st.info("Fourth down can be more volatile because of smaller sample sizes.")
+        st.info("Likely RUN situation")
