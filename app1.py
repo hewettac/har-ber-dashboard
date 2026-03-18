@@ -345,153 +345,153 @@ if uploaded_file:
     # Tab 5
     # --------------
 
-   # --------------
-   # Tab 5 (ELITE Play Prediction System)
-   # --------------
+    # --------------
+    # Tab 5 (ELITE Play Prediction System)
+    # --------------
    
-   import pandas as pd
-   import numpy as np
-   import streamlit as st
-   from sklearn.preprocessing import LabelEncoder
-   from xgboost import XGBClassifier
+    import pandas as pd
+    import numpy as np
+    import streamlit as st
+    from sklearn.preprocessing import LabelEncoder
+    from xgboost import XGBClassifier
    
-   # -------------------------
-   # Feature Engineering
-   # -------------------------
-   def add_features(df):
-       df = df.copy()
+    # -------------------------
+    # Feature Engineering
+    # -------------------------
+    def add_features(df):
+        df = df.copy()
    
-       df["distance_bucket"] = pd.cut(
-           df["distance"],
-           bins=[0, 3, 7, 20],
-           labels=[0, 1, 2]
-       ).astype(float)
+        df["distance_bucket"] = pd.cut(
+            df["distance"],
+            bins=[0, 3, 7, 20],
+            labels=[0, 1, 2]
+        ).astype(float)
    
-       df["field_zone"] = pd.cut(
-           df["yardline"],
-           bins=[-50, -20, 20, 50],
-           labels=[0, 1, 2]  # backed up, midfield, redzone-ish
-       ).astype(float)
+        df["field_zone"] = pd.cut(
+            df["yardline"],
+            bins=[-50, -20, 20, 50],
+            labels=[0, 1, 2]  # backed up, midfield, redzone-ish
+        ).astype(float)
    
-       return df
+        return df
    
    # -------------------------
    # Load Base Dataset (cached)
    # -------------------------
-   @st.cache_data
-   def load_base_data():
-       return pd.read_csv("AllPlaysTrainData.csv")
+    @st.cache_data
+    def load_base_data():
+        return pd.read_csv("AllPlaysTrainData.csv")
    
    # -------------------------
    # Train Model (cached)
    # -------------------------
-   @st.cache_resource
-   def train_model(base_df, weekly_df):
+    @st.cache_resource
+    def train_model(base_df, weekly_df):
    
-       base_df = add_features(base_df)
-       weekly_df = add_features(weekly_df)
+        base_df = add_features(base_df)
+        weekly_df = add_features(weekly_df)
    
        # Clean
-       base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
-       weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+        base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+        weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
    
        # Weighting (TRANSFER LEARNING CORE)
-       base_df["weight"] = 1
-       weekly_df["weight"] = 6   # 🔥 heavier opponent emphasis
+        base_df["weight"] = 1
+        weekly_df["weight"] = 6   # 🔥 heavier opponent emphasis
    
-       combined = pd.concat([base_df, weekly_df])
+        combined = pd.concat([base_df, weekly_df])
    
        # Encode target
-       le = LabelEncoder()
-       combined["play_type_encoded"] = le.fit_transform(combined["play_type"])
+        le = LabelEncoder()
+        combined["play_type_encoded"] = le.fit_transform(combined["play_type"])
    
-       features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+        features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
    
-       X = combined[features]
-       y = combined["play_type_encoded"]
-       weights = combined["weight"]
+        X = combined[features]
+        y = combined["play_type_encoded"]
+        weights = combined["weight"]
    
        # 🔥 XGBoost Model (much better than RF)
-       model = XGBClassifier(
-           n_estimators=500,
-           max_depth=6,
-           learning_rate=0.05,
-           subsample=0.9,
-           colsample_bytree=0.9,
-           objective="multi:softprob",
-           eval_metric="mlogloss",
-           random_state=42
-       )
+        model = XGBClassifier(
+            n_estimators=500,
+            max_depth=6,
+            learning_rate=0.05,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            objective="multi:softprob",
+            eval_metric="mlogloss",
+            random_state=42
+        )
    
-       model.fit(X, y, sample_weight=weights)
+        model.fit(X, y, sample_weight=weights)
    
-       return model, le
+        return model, le
    
    # -------------------------
    # TAB UI
    # -------------------------
-   with tab5:
+    with tab5:
    
-       st.markdown("## 🧠 Elite Play Prediction Engine")
+        st.markdown("## 🧠 Elite Play Prediction Engine")
    
        # Load datasets
-       try:
-           base_df = load_base_data()
-       except:
-           st.error("Missing AllPlaysTrainData.csv")
-           st.stop()
+        try:
+            base_df = load_base_data()
+        except:
+            st.error("Missing AllPlaysTrainData.csv")
+            st.stop()
    
-       weekly_df = df.copy()
+        weekly_df = df.copy()
    
        # Train model (cached = FAST)
-       model, le = train_model(base_df, weekly_df)
+        model, le = train_model(base_df, weekly_df)
    
        # -------------------------
        # Inputs
        # -------------------------
-       col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
    
-       with col1:
-           pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
+        with col1:
+            pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
    
-       with col2:
-           pred_dist = st.slider("Distance", 1, 20, 7)
+        with col2:
+            pred_dist = st.slider("Distance", 1, 20, 7)
    
-       with col3:
-           pred_yard = st.slider("Yardline", -50, 50, 0)
+        with col3:
+            pred_yard = st.slider("Yardline", -50, 50, 0)
    
        # Build input
-       input_df = pd.DataFrame({
-           "down": [pred_down],
-           "distance": [pred_dist],
-           "yardline": [pred_yard]
-       })
+        input_df = pd.DataFrame({
+            "down": [pred_down],
+            "distance": [pred_dist],
+            "yardline": [pred_yard]
+        })
    
-       input_df = add_features(input_df)
+        input_df = add_features(input_df)
    
-       features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+        features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
    
        # -------------------------
        # Prediction
        # -------------------------
-       probs = model.predict_proba(input_df[features])[0]
+        probs = model.predict_proba(input_df[features])[0]
    
-       top_indices = np.argsort(probs)[::-1][:3]
+        top_indices = np.argsort(probs)[::-1][:3]
    
-       st.markdown("### 🎯 Top Play Predictions")
+        st.markdown("### 🎯 Top Play Predictions")
    
-       for i in top_indices:
-           play = le.inverse_transform([i])[0]
-           confidence = probs[i] * 100
+        for i in top_indices:
+            play = le.inverse_transform([i])[0]
+            confidence = probs[i] * 100
    
-           st.metric(play, f"{confidence:.1f}%")
+            st.metric(play, f"{confidence:.1f}%")
    
        # -------------------------
        # Situation Insight
        # -------------------------
-       st.markdown("### 📊 Situation Insight")
+        st.markdown("### 📊 Situation Insight")
    
-       if pred_down == 3 and pred_dist >= 7:
-           st.info("Likely PASS situation (3rd & long tendency)")
-       elif pred_down == 1 and pred_dist <= 3:
-           st.info("High RUN probability (short yardage)")
+        if pred_down == 3 and pred_dist >= 7:
+            st.info("Likely PASS situation (3rd & long tendency)")
+        elif pred_down == 1 and pred_dist <= 3:
+            st.info("High RUN probability (short yardage)")
