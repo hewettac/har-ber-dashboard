@@ -354,6 +354,10 @@ if uploaded_file:
         # Tab 5
         # ----------------------------
 
+        # ------------------------
+        # Tab 5
+        # ----------------------------
+
     with tab5:
 
         st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
@@ -393,22 +397,37 @@ if uploaded_file:
         # -------------------------
         from sklearn.model_selection import train_test_split
         from sklearn.metrics import accuracy_score
+        from sklearn.ensemble import RandomForestClassifier
+        import pandas as pd # Import pandas here if not already imported globally
 
 
         @st.cache_resource
-        def train_model(base_df, weekly_df):
+        def train_model(base_df, weekly_df_for_training): # Renamed weekly_df to avoid conflict
+            # Ensure weekly_df_for_training is not empty before proceeding
+            # This check might need more sophistication depending on expected "empty" state
+            if weekly_df_for_training is None or weekly_df_for_training.empty:
+                st.warning("Weekly data is empty or not provided for training.")
+                return None, 0.0, None # Return defaults or raise an error
+
+            base_df = base_df.copy() # Work on copies to avoid modifying cached objects
+            weekly_df_for_training = weekly_df_for_training.copy()
 
             # Feature engineering
             base_df = add_features(base_df)
-            weekly_df = add_features(weekly_df)
+            weekly_df_for_training = add_features(weekly_df_for_training)
 
             # Clean missing values
             base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type"])
-            weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type"])
+            weekly_df_for_training = weekly_df_for_training.dropna(subset=["down", "distance", "yardline", "play_type"])
 
-            # Encode play_type
-            base_df["play_type_encoded"] = base_df["play_type"].astype("category").cat.codes
-            weekly_df["play_type_encoded"] = weekly_df["play_type"].astype("category").cat.codes
+            # Combine categories from both dataframes to ensure consistent encoding
+            all_play_types = pd.concat([base_df["play_type"], weekly_df_for_training["play_type"]]).astype("category")
+            play_type_categories = all_play_types.cat.categories
+
+
+            # Encode play_type using the combined categories
+            base_df["play_type_encoded"] = pd.Categorical(base_df["play_type"], categories=play_type_categories).codes
+            weekly_df_for_training["play_type_encoded"] = pd.Categorical(weekly_df_for_training["play_type"], categories=play_type_categories).codes
 
             # Features + target
             X = base_df[["down", "distance_bucket", "field_zone"]]
@@ -420,7 +439,6 @@ if uploaded_file:
             )
 
             # Train model
-            from sklearn.ensemble import RandomForestClassifier
             model = RandomForestClassifier(n_estimators=300, random_state=42)
             model.fit(X_train, y_train)
 
@@ -428,7 +446,8 @@ if uploaded_file:
             preds = model.predict(X_test)
             acc = accuracy_score(y_test, preds)
 
-            return model, acc, weekly_df
+            return model, acc, weekly_df_for_training, play_type_categories
+            # Return play_type_categories to ensure consistent decoding later
 
 
         # -------------------------
@@ -436,105 +455,166 @@ if uploaded_file:
         # -------------------------
         base_df = load_base_data()
 
+        # Assuming 'uploaded_df' is passed into a variable accessible here,
+        # e.g., from a file uploader in the sidebar outside of `tab5`
+        # For this example, let's assume `uploaded_df` is a valid DataFrame or None
+        # You would typically have something like:
+        # with st.sidebar:
+        #    uploaded_file = st.file_uploader("Upload Weekly Data CSV", type="csv")
+        #    if uploaded_file is not None:
+        #        uploaded_df = pd.read_csv(uploaded_file)
+        #    else:
+        #        uploaded_df = None # Initialize as None if no file is uploaded
 
+        # --- IMPORTANT ---
+        # Replace `uploaded_df_from_main_script` with the actual variable name
+        # that holds the uploaded weekly data DataFrame in your main script.
+        # I'm using a placeholder here for demonstration.
+        # Make sure this variable is defined *before* this tab5 block.
+        # For instance, let's assume your uploaded_df from the sidebar is named `uploaded_weekly_df`
+        if 'uploaded_weekly_df' in locals() and uploaded_weekly_df is not None: # Check if the variable exists and is not None
+            # Pass the uploaded_weekly_df to the train_model function
+            model, acc, processed_weekly_df, play_type_categories = train_model(base_df, uploaded_weekly_df)
 
-            model, acc, weekly_df = train_model(base_df, uploaded_df)
+            if model is not None: # Only proceed if training was successful
+                st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
 
-            st.success(f"Model trained successfully! Accuracy: {acc:.2%}")
+                # -------------------------
+                # Prediction Interface
+                # -------------------------
+                st.markdown("### Predict Play Type")
 
-            # -------------------------
-            # Prediction Interface
-            # -------------------------
-            st.markdown("### Predict Play Type")
+                col1, col2, col3 = st.columns(3)
 
-            col1, col2, col3 = st.columns(3)
+                with col1:
+                    down = st.selectbox("Down", [1, 2, 3, 4])
 
-            with col1:
-                down = st.selectbox("Down", [1, 2, 3, 4])
+                with col2:
+                    distance = st.number_input("Distance", min_value=1, max_value=30, value=5)
 
-            with col2:
-                distance = st.number_input("Distance", min_value=1, max_value=30, value=5)
+                with col3:
+                    yardline = st.number_input("Yardline (negative = backed up)", min_value=-50, max_value=50, value=0)
 
-            with col3:
-                yardline = st.number_input("Yardline (negative = backed up)", min_value=-50, max_value=50, value=0)
+                # Build input row
+                input_df = pd.DataFrame([{
+                    "down": down,
+                    "distance": distance,
+                    "yardline": yardline
+                }])
 
-            # Build input row
-            input_df = pd.DataFrame([{
-                "down": down,
-                "distance": distance,
-                "yardline": yardline
-            }])
+                input_df = add_features(input_df)
 
-            input_df = add_features(input_df)
+                # Predict
+                # Ensure input_df has the same columns as used for training X
+                # The columns for prediction should strictly match the feature names used in training
+                predict_features = ["down", "distance_bucket", "field_zone"]
+                pred = model.predict(input_df[predict_features])[0]
 
-            # Predict
-            pred = model.predict(input_df[["down", "distance_bucket", "field_zone"]])[0]
+                # Decode play type using the categories returned by train_model
+                play_type_map = dict(
+                    enumerate(play_type_categories)
+                )
+                predicted_play = play_type_map[pred]
 
-            # Decode play type
-            play_type_map = dict(
-                enumerate(base_df["play_type"].astype("category").cat.categories)
-            )
-            predicted_play = play_type_map[pred]
+                st.markdown(f"### 🧠 Predicted Play: **{predicted_play}**")
 
-            st.markdown(f"### 🧠 Predicted Play: **{predicted_play}**")
+                # -------------------------
+                # Probability Breakdown
+                # -------------------------
+                probs = model.predict_proba(input_df[predict_features])[0]
+                prob_df = pd.DataFrame({
+                    "Play Type": play_type_categories, # Use the actual categories for display
+                    "Probability": probs
+                }).sort_values("Probability", ascending=False)
 
-            # -------------------------
-            # Probability Breakdown
-            # -------------------------
-            probs = model.predict_proba(input_df[["down", "distance_bucket", "field_zone"]])[0]
-            prob_df = pd.DataFrame({
-                "Play Type": base_df["play_type"].astype("category").cat.categories,
-                "Probability": probs
-            }).sort_values("Probability", ascending=False)
-
-            st.markdown("### Probability Breakdown")
-            st.dataframe(prob_df, use_container_width=True)
+                st.markdown("### Probability Breakdown")
+                st.dataframe(prob_df, use_container_width=True)
+            else:
+                st.warning("Model could not be trained due to issues with the uploaded weekly data.")
 
         else:
             st.info("Upload a weekly CSV to activate the prediction system.")
 
     st.markdown("### Concept Effectiveness")
 
-    with st.expander("How to read this chart"):
-        st.write("""
-             This chart evaluates offensive concepts using three metrics:
+    # Assuming 'df' for concept effectiveness is also the uploaded_weekly_df or a combined df
+    # If 'df' is supposed to be the uploaded weekly data, replace it with `uploaded_weekly_df`
+    # and add a check for it being not None and having played data.
+    # For now, I'll assume `df` refers to `processed_weekly_df` or a similar variable
+    # that is populated when `uploaded_weekly_df` is present.
+    # You might need to adjust this depending on which dataframe you intend to analyze here.
+    # Let's assume `df` should also be `uploaded_weekly_df` if it's available, otherwise some default.
 
-             **X-axis:** Success Rate (% of plays gaining 4+ yards)
+    # Ensure `uploaded_weekly_df` or some other dataframe is available for this section too
+    if 'uploaded_weekly_df' in locals() and uploaded_weekly_df is not None and not uploaded_weekly_df.empty:
+        # Use uploaded_weekly_df for concept effectiveness if it's available
+        concept_analysis_df = uploaded_weekly_df.copy()
+        # Add 'gain_loss' if not already present; this column is critical for concept effectiveness
+        # You might need to adjust the column name based on your uploaded CSV.
+        # For demonstration, let's assume 'gain_loss' is expected.
+        if 'gain_loss' not in concept_analysis_df.columns:
+            st.warning("The uploaded weekly data does not contain a 'gain_loss' column needed for Concept Effectiveness.")
+            concept_analysis_df = pd.DataFrame() # Make it empty if critical column is missing
+        elif 'concept' not in concept_analysis_df.columns:
+            st.warning("The uploaded weekly data does not contain a 'concept' column needed for Concept Effectiveness.")
+            concept_analysis_df = pd.DataFrame() # Make it empty if critical column is missing
+    else:
+        # If no weekly data is uploaded, you might want to use the base_df for concept effectiveness
+        # or simply skip this section. For now, let's assume you want to use base_df as fallback
+        # and ensure it has 'gain_loss' and 'concept' or skip.
+        if 'gain_loss' in base_df.columns and 'concept' in base_df.columns:
+            concept_analysis_df = base_df.copy()
+            st.info("Using base dataset for Concept Effectiveness as no weekly data was uploaded.")
+        else:
+            concept_analysis_df = pd.DataFrame() # Empty if neither has full data
+            st.info("No suitable data found for Concept Effectiveness analysis (missing 'gain_loss' or 'concept').")
 
-             **Y-axis:** Average yards gained per play
 
-             **Bubble Size:** Number of times the concept was run
+    if not concept_analysis_df.empty: # Only proceed if concept_analysis_df has data
+        with st.expander("How to read this chart"):
+            st.write("""
+                This chart evaluates offensive concepts using three metrics:
 
-             The best concepts are large and towards the right:
-             • High success rate
-             • High average gain
-             • Large sample size
-             """)
+                **X-axis:** Success Rate (% of plays gaining 4+ yards)
 
-    concept_stats = (
-        df.groupby("concept")
-        .agg(
-            avg_gain=("gain_loss", "mean"),
-            success_rate=("gain_loss", lambda x: (x >= 4).mean()),
-            plays=("gain_loss", "count")
+                **Y-axis:** Average yards gained per play
+
+                **Bubble Size:** Number of times the concept was run
+
+                The best concepts are large and towards the right:
+                • High success rate
+                • High average gain
+                • Large sample size
+                """)
+
+        import plotly.express as px # Import plotly.express here if not already imported globally
+
+        concept_stats = (
+            concept_analysis_df.groupby("concept")
+            .agg(
+                avg_gain=("gain_loss", "mean"),
+                success_rate=("gain_loss", lambda x: (x >= 4).mean()),
+                plays=("gain_loss", "count")
+            )
+            .reset_index()
         )
-        .reset_index()
-    )
 
-    concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
+        concept_stats = concept_stats.sort_values("avg_gain", ascending=False)
 
-    bubble = px.scatter(
-        concept_stats,
-        x="success_rate",
-        y="avg_gain",
-        size="plays",
-        hover_name="concept",
-        template="plotly_dark"
-    )
+        bubble = px.scatter(
+            concept_stats,
+            x="success_rate",
+            y="avg_gain",
+            size="plays",
+            hover_name="concept",
+            template="plotly_dark"
+        )
 
-    st.plotly_chart(bubble, use_container_width=True)
+        st.plotly_chart(bubble, use_container_width=True)
+        st.dataframe(concept_stats)
+    else:
+        st.info("Concept Effectiveness chart not displayed: no data or missing required columns ('gain_loss', 'concept').")
 
-    st.dataframe(concept_stats)
 
 
 
