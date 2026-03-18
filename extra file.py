@@ -374,34 +374,33 @@ if uploaded_file:
             # Tab 5 - Play Prediction
             # ------------------------
             with tab5:
+            
                 st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
-
-
+            
                 # -------------------------
                 # Feature Engineering
                 # -------------------------
-                def add_features(dataframe):
-                    dataframe = dataframe.copy()
-
-                    dataframe["distance"] = pd.to_numeric(dataframe["distance"], errors="coerce")
-                    dataframe["yardline"] = pd.to_numeric(dataframe["yardline"], errors="coerce")
-                    dataframe["down"] = pd.to_numeric(dataframe["down"], errors="coerce")
-
-                    dataframe["distance_bucket"] = pd.cut(
-                        dataframe["distance"],
+                def add_features(df):
+                    df = df.copy()
+            
+                    df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
+                    df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
+                    df["down"] = pd.to_numeric(df["down"], errors="coerce")
+            
+                    df["distance_bucket"] = pd.cut(
+                        df["distance"],
                         bins=[-1, 3, 7, 100],
                         labels=[0, 1, 2]
                     ).astype(float)
-
-                    dataframe["field_zone"] = pd.cut(
-                        dataframe["yardline"],
+            
+                    df["field_zone"] = pd.cut(
+                        df["yardline"],
                         bins=[-51, -20, 20, 51],
                         labels=[0, 1, 2]
                     ).astype(float)
-
-                    return dataframe
-
-
+            
+                    return df
+            
                 # -------------------------
                 # Load Base Dataset
                 # -------------------------
@@ -409,77 +408,71 @@ if uploaded_file:
                 def load_base_data():
                     base = pd.read_csv("AllPlaysTrainData.csv")
                     base.columns = base.columns.str.lower().str.strip()
-
-                    base_column_map = {
-                        "down": ["down", "dn"],
-                        "distance": ["dist", "togo", "yards to go", "ydstogo", "distance"],
-                        "yardline": ["yard ln", "spot", "ball on", "yardline"],
-                        "play_type": ["play type", "playtype", "type", "play_type"]
-                    }
-
-                    rename_dict = {}
-                    for standard_col, variants in base_column_map.items():
-                        for col in base.columns:
-                            if col in variants:
-                                rename_dict[col] = standard_col
-
-                    base = base.rename(columns=rename_dict)
                     return base
-
-
+            
                 # -------------------------
                 # Train Model
                 # -------------------------
                 from sklearn.model_selection import train_test_split
                 from sklearn.metrics import accuracy_score
                 from sklearn.preprocessing import LabelEncoder
-
-
+            
                 @st.cache_resource
                 def train_model(base_df, weekly_df):
+            
                     base_df = base_df.copy()
                     weekly_df = weekly_df.copy()
-
+            
                     base_df.columns = base_df.columns.str.lower().str.strip()
                     weekly_df.columns = weekly_df.columns.str.lower().str.strip()
-
+            
                     required_cols = ["down", "distance", "yardline", "play_type"]
                     for col in required_cols:
                         if col not in base_df.columns:
-                            raise ValueError(f"Base training data is missing required column: {col}")
+                            raise ValueError(f"Base data missing column: {col}")
                         if col not in weekly_df.columns:
-                            raise ValueError(f"Weekly uploaded data is missing required column: {col}")
-
+                            raise ValueError(f"Weekly data missing column: {col}")
+            
                     base_df = add_features(base_df)
                     weekly_df = add_features(weekly_df)
-
-                    base_df = base_df.dropna(
-                        subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-                    weekly_df = weekly_df.dropna(
-                        subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-
+            
+                    base_df = base_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
+                    weekly_df = weekly_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
+            
                     if weekly_df.empty:
-                        raise ValueError("Weekly uploaded file has no usable rows after cleaning.")
-
-                    # Transfer-learning style weighting:
-                    # base data teaches the global patterns, weekly data gets heavier weight
-                    base_df["sample_weight"] = 1
-                    weekly_df["sample_weight"] = 6
-
-                    combined_df = pd.concat([base_df, weekly_df], ignore_index=True)
-
+                        raise ValueError("Weekly dataset has no usable rows.")
+            
+                    # 🔥 Transfer Learning Weights
+                    base_df["weight"] = 1
+                    weekly_df["weight"] = 6
+            
+                    combined = pd.concat([base_df, weekly_df], ignore_index=True)
+            
                     le = LabelEncoder()
-                    combined_df["play_type_encoded"] = le.fit_transform(combined_df["play_type"].astype(str))
-
-                    features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
-                    X = combined_df[features]
-                    y = combined_df["play_type_encoded"]
-                    sample_weights = combined_df["sample_weight"]
-
+                    combined["play_type_encoded"] = le.fit_transform(combined["play_type"].astype(str))
+            
+                    features = ["down","distance","yardline","distance_bucket","field_zone"]
+                    X = combined[features].reset_index(drop=True)
+                    y = combined["play_type_encoded"].reset_index(drop=True)
+                    weights = combined["weight"].reset_index(drop=True)
+            
+                    # 🔥 Remove rare classes (fix your error)
+                    class_counts = y.value_counts()
+                    valid_classes = class_counts[class_counts >= 2].index
+            
+                    mask = y.isin(valid_classes)
+                    X = X[mask]
+                    y = y[mask]
+                    weights = weights[mask]
+            
+                    if y.nunique() < 2:
+                        raise ValueError("Not enough play types to train model.")
+            
+                    # Train/test split
                     X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-                        X, y, sample_weights, test_size=0.2, random_state=42, stratify=y
+                        X, y, weights, test_size=0.2, random_state=42, stratify=y
                     )
-
+            
                     model = XGBClassifier(
                         n_estimators=400,
                         max_depth=6,
@@ -490,135 +483,126 @@ if uploaded_file:
                         eval_metric="mlogloss",
                         random_state=42
                     )
-
+            
                     model.fit(X_train, y_train, sample_weight=w_train)
-
-                    y_pred = model.predict(X_test)
-                    overall_accuracy = accuracy_score(y_test, y_pred)
-
-                    return model, le, overall_accuracy, X_test, y_test, features
-
-
+            
+                    preds = model.predict(X_test)
+                    accuracy = accuracy_score(y_test, preds)
+            
+                    return model, le, accuracy, X_test, y_test, features
+            
                 # -------------------------
-                # Use sidebar-uploaded weekly data
+                # Load Data
                 # -------------------------
                 try:
                     base_df = load_base_data()
                 except Exception as e:
-                    st.error(f"Could not load AllPlaysTrainData.csv: {e}")
+                    st.error(f"Error loading base dataset: {e}")
                     st.stop()
-
-                # Use the file already uploaded in the sidebar earlier in your app
+            
                 weekly_df = df.copy()
-
+            
                 try:
-                    model, le, overall_accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
+                    model, le, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
                 except Exception as e:
                     st.error(f"Model training failed: {e}")
                     st.stop()
-
-                st.success(f"Model trained successfully. Overall Model Accuracy: {overall_accuracy:.2%}")
-
+            
+                st.success(f"Model Accuracy: {accuracy:.2%}")
+            
                 # -------------------------
-                # Prediction Inputs
+                # User Inputs
                 # -------------------------
-                st.markdown("### Predict Play Type")
-
+                st.markdown("### Predict Play")
+            
                 col1, col2, col3 = st.columns(3)
-
+            
                 with col1:
-                    pred_down = st.selectbox("Down", [1, 2, 3, 4], index=0)
-
+                    pred_down = st.selectbox("Down", [1,2,3,4])
+            
                 with col2:
-                    pred_dist = st.number_input("Distance", min_value=1, max_value=30, value=5)
-
+                    pred_dist = st.number_input("Distance", 1, 30, 5)
+            
                 with col3:
-                    pred_yard = st.number_input("Yardline", min_value=-50, max_value=50, value=0)
-
-                # Build prediction row
+                    pred_yard = st.number_input("Yardline", -50, 50, 0)
+            
                 input_df = pd.DataFrame([{
                     "down": pred_down,
                     "distance": pred_dist,
                     "yardline": pred_yard
                 }])
-
+            
                 input_df = add_features(input_df)
-                input_X = input_df[features]
-
-                # Prediction
-                probs = model.predict_proba(input_X)[0]
-                pred_class = int(np.argmax(probs))
+            
+                probs = model.predict_proba(input_df[features])[0]
+            
+                pred_class = np.argmax(probs)
                 predicted_play = le.inverse_transform([pred_class])[0]
-                prediction_confidence = float(np.max(probs))
-
-                # Situation-specific accuracy
+                confidence = probs[pred_class]
+            
+                # -------------------------
+                # Situation Accuracy
+                # -------------------------
                 mask = (
-                        (X_test["down"] == pred_down) &
-                        (abs(X_test["distance"] - pred_dist) <= 2) &
-                        (abs(X_test["yardline"] - pred_yard) <= 10)
+                    (X_test["down"] == pred_down) &
+                    (abs(X_test["distance"] - pred_dist) <= 2) &
+                    (abs(X_test["yardline"] - pred_yard) <= 10)
                 )
-
+            
                 similar_X = X_test[mask]
                 similar_y = y_test[mask]
-
+            
                 if len(similar_X) >= 10:
-                    similar_preds = model.predict(similar_X)
-                    situation_accuracy = accuracy_score(similar_y, similar_preds)
+                    situation_acc = accuracy_score(similar_y, model.predict(similar_X))
                 else:
-                    situation_accuracy = None
-
+                    situation_acc = None
+            
                 # -------------------------
-                # Results
+                # Display Results
                 # -------------------------
-                st.markdown("### Prediction Results")
-
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    st.metric("Predicted Play", predicted_play)
-                with m2:
-                    st.metric("Prediction Confidence", f"{prediction_confidence:.1%}")
-                with m3:
-                    st.metric("Overall Model Accuracy", f"{overall_accuracy:.1%}")
-
-                if situation_accuracy is not None:
-                    st.metric("Situation Accuracy", f"{situation_accuracy:.1%}")
+                st.markdown("### Results")
+            
+                c1, c2, c3 = st.columns(3)
+            
+                c1.metric("Predicted Play", predicted_play)
+                c2.metric("Confidence", f"{confidence:.1%}")
+                c3.metric("Model Accuracy", f"{accuracy:.1%}")
+            
+                if situation_acc:
+                    st.metric("Situation Accuracy", f"{situation_acc:.1%}")
                 else:
-                    st.info("Not enough similar plays in the test sample to calculate situation accuracy.")
-
+                    st.info("Not enough similar plays for situation accuracy")
+            
                 # -------------------------
-                # Top 3 Play Predictions
+                # Top 3 Plays
                 # -------------------------
-                st.markdown("### Top 3 Likely Plays")
-
-                top_indices = np.argsort(probs)[::-1][:3]
-                top_df = pd.DataFrame({
-                    "Play Type": le.inverse_transform(top_indices),
-                    "Probability": [probs[i] for i in top_indices]
-                })
-                top_df["Probability"] = top_df["Probability"].map(lambda x: f"{x:.1%}")
-                st.dataframe(top_df, use_container_width=True)
-
+                st.markdown("### Top 3 Plays")
+            
+                top_idx = np.argsort(probs)[::-1][:3]
+            
+                for i in top_idx:
+                    st.write(f"{le.inverse_transform([i])[0]} — {probs[i]:.1%}")
+            
                 # -------------------------
-                # Full Probability Breakdown
+                # Probability Table
                 # -------------------------
-                st.markdown("### Probability Breakdown")
-
+                st.markdown("### Full Probabilities")
+            
                 prob_df = pd.DataFrame({
-                    "Play Type": le.inverse_transform(np.arange(len(probs))),
+                    "Play": le.inverse_transform(np.arange(len(probs))),
                     "Probability": probs
                 }).sort_values("Probability", ascending=False)
-
+            
                 prob_df["Probability"] = prob_df["Probability"].map(lambda x: f"{x:.2%}")
+            
                 st.dataframe(prob_df, use_container_width=True)
-
+            
                 # -------------------------
-                # Situation Insight
+                # Insight
                 # -------------------------
                 st.markdown("### Situation Insight")
-
+            
                 if pred_down == 3 and pred_dist >= 7:
-                    st.info("Likely passing tendency: long-yardage third down.")
+                    st.info("Likely PASS situation")
                 elif pred_down == 1 and pred_dist <= 3:
-                    st.info("Likely run tendency: short-yardage first down.")
-                elif pred_down == 4:
-                    st.info("Fourth down tendency may be high-variance because of smaller sample sizes.")    
+                    st.info("Likely RUN situation") 
