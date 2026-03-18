@@ -436,11 +436,7 @@ if uploaded_file:
         # -------------------------
         base_df = load_base_data()
 
-        st.subheader("Weekly Data Upload")
-        weekly_file = st.file_uploader("Upload Weekly CSV", type=["csv"])
 
-        if uploaded_file:
-            uploaded_df = pd.read_csv(uploaded_file)
 
             model, acc, weekly_df = train_model(base_df, uploaded_df)
 
