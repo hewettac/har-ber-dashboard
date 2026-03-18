@@ -647,79 +647,86 @@ with tab5:
     from sklearn.metrics import accuracy_score
     from sklearn.preprocessing import LabelEncoder
 
-    @st.cache_resource
-    def train_model(base_df, weekly_df):
+    @st.cache_resource(show_spinner=False)
+def train_model(base_df, weekly_df):
 
-        base_df = base_df.copy()
-        weekly_df = weekly_df.copy()
+    base_df = base_df.copy()
+    weekly_df = weekly_df.copy()
 
-        base_df.columns = base_df.columns.str.lower().str.strip()
-        weekly_df.columns = weekly_df.columns.str.lower().str.strip()
+    base_df.columns = base_df.columns.str.lower().str.strip()
+    weekly_df.columns = weekly_df.columns.str.lower().str.strip()
 
-        required_cols = ["down", "distance", "yardline", "play_type"]
-        for col in required_cols:
-            if col not in base_df.columns:
-                raise ValueError(f"Base data missing column: {col}")
-            if col not in weekly_df.columns:
-                raise ValueError(f"Weekly data missing column: {col}")
+    required_cols = ["down", "distance", "yardline", "play_type"]
+    for col in required_cols:
+        if col not in base_df.columns:
+            raise ValueError(f"Base data missing column: {col}")
+        if col not in weekly_df.columns:
+            raise ValueError(f"Weekly data missing column: {col}")
 
-        base_df = add_features(base_df)
-        weekly_df = add_features(weekly_df)
+    base_df = add_features(base_df)
+    weekly_df = add_features(weekly_df)
 
-        base_df = base_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
-        weekly_df = weekly_df.dropna(subset=["down","distance","yardline","play_type","distance_bucket","field_zone"])
+    base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
+    weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
 
-        if weekly_df.empty:
-            raise ValueError("Weekly dataset has no usable rows.")
+    if weekly_df.empty:
+        raise ValueError("Weekly dataset has no usable rows.")
 
-        # 🔥 Transfer Learning Weights
-        base_df["weight"] = 1
-        weekly_df["weight"] = 6
+    # Weight weekly data more heavily
+    base_df["weight"] = 1
+    weekly_df["weight"] = 6
 
-        combined = pd.concat([base_df, weekly_df], ignore_index=True)
+    combined = pd.concat([base_df, weekly_df], ignore_index=True)
 
-        features = ["down","distance","yardline","distance_bucket","field_zone"]
+    features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
 
-        # 🔥 REMOVE RARE CLASSES BEFORE ENCODING (fixes your error)
-        combined["play_type"] = combined["play_type"].astype(str)
-        play_counts = combined["play_type"].value_counts()
-        valid_play_types = play_counts[play_counts >= 2].index
+    # Keep only play types with at least 2 examples
+    combined["play_type"] = combined["play_type"].astype(str).str.strip()
+    play_counts = combined["play_type"].value_counts()
+    valid_play_types = play_counts[play_counts >= 2].index
+    combined = combined[combined["play_type"].isin(valid_play_types)].copy()
 
-        combined = combined[combined["play_type"].isin(valid_play_types)].reset_index(drop=True)
+    if combined["play_type"].nunique() < 2:
+        raise ValueError("Not enough play types with at least 2 samples to train the model.")
 
-        if combined["play_type"].nunique() < 2:
-            raise ValueError("Not enough play types to train model.")
+    # HARD RESET LABELS TO 0..N-1
+    play_type_names = sorted(combined["play_type"].unique())
+    play_type_to_int = {name: i for i, name in enumerate(play_type_names)}
+    int_to_play_type = {i: name for name, i in play_type_to_int.items()}
 
-        # 🔥 NOW encode (ensures labels = 0..n-1)
-        le = LabelEncoder()
-        combined["play_type_encoded"] = le.fit_transform(combined["play_type"])
+    combined["play_type_encoded"] = combined["play_type"].map(play_type_to_int).astype(int)
 
-        X = combined[features].reset_index(drop=True)
-        y = combined["play_type_encoded"].reset_index(drop=True)
-        weights = combined["weight"].reset_index(drop=True)
+    X = combined[features].reset_index(drop=True)
+    y = combined["play_type_encoded"].reset_index(drop=True)
+    weights = combined["weight"].reset_index(drop=True)
 
-        X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-            X, y, weights, test_size=0.2, random_state=42, stratify=y
-        )
+    # Safety check
+    unique_y = sorted(y.unique().tolist())
+    expected_y = list(range(len(unique_y)))
+    if unique_y != expected_y:
+        raise ValueError(f"Encoded classes are not contiguous. Got {unique_y}, expected {expected_y}")
 
-        model = XGBClassifier(
-            n_estimators=400,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            objective="multi:softprob",
-            eval_metric="mlogloss",
-            random_state=42
-        )
+    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+        X, y, weights, test_size=0.2, random_state=42, stratify=y
+    )
 
-        model.fit(X_train, y_train, sample_weight=w_train)
+    model = XGBClassifier(
+        n_estimators=400,
+        max_depth=6,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        random_state=42
+    )
 
-        preds = model.predict(X_test)
-        accuracy = accuracy_score(y_test, preds)
+    model.fit(X_train, y_train, sample_weight=w_train)
 
-        return model, le, accuracy, X_test, y_test, features
+    preds = model.predict(X_test)
+    accuracy = accuracy_score(y_test, preds)
 
+    return model, int_to_play_type, accuracy, X_test, y_test, features
     # -------------------------
     # Load Data
     # -------------------------
@@ -732,7 +739,7 @@ with tab5:
     weekly_df = df.copy()
 
     try:
-        model, le, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
+        model, int_to_play_type, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
     except Exception as e:
         st.error(f"Model training failed: {e}")
         st.stop()
@@ -766,7 +773,7 @@ with tab5:
     probs = model.predict_proba(input_df[features])[0]
 
     pred_class = np.argmax(probs)
-    predicted_play = le.inverse_transform([pred_class])[0]
+    predicted_play = int_to_play_type[pred_class]
     confidence = probs[pred_class]
 
     # -------------------------
@@ -810,7 +817,7 @@ with tab5:
     top_idx = np.argsort(probs)[::-1][:3]
 
     for i in top_idx:
-        st.write(f"{le.inverse_transform([i])[0]} — {probs[i]:.1%}")
+        st.write(f"{int_to_play_type[i]} — {probs[i]:.1%}")
 
     # -------------------------
     # Probability Table
@@ -818,7 +825,7 @@ with tab5:
     st.markdown("### Full Probabilities")
 
     prob_df = pd.DataFrame({
-        "Play": le.inverse_transform(np.arange(len(probs))),
+        "Play": [int_to_play_type[i] for i in range(len(probs))],
         "Probability": probs
     }).sort_values("Probability", ascending=False)
 
