@@ -479,6 +479,32 @@ if uploaded_file:
               confidence = probs[i] * 100
       
               st.metric(play, f"{confidence:.1f}%")
+
+            # -------------------------
+            # Prediction
+            # -------------------------
+            pred_class = np.argmax(probs)
+            predicted_play = le.inverse_transform([pred_class])[0]
+            top_confidence = probs[pred_class] * 100
+
+                       # -------------------------
+            # Situation-Specific Accuracy
+            # -------------------------
+            # Find similar plays in test set
+            mask = (
+                (X_test["down"] == pred_down) &
+                (abs(X_test["distance"] - pred_dist) <= 2) &
+                (abs(X_test["yardline"] - pred_yard) <= 10)
+            )
+            
+            similar_X = X_test[mask]
+            similar_y = y_test[mask]
+            
+            if len(similar_X) > 20:
+                similar_preds = model.predict(similar_X)
+                situation_accuracy = accuracy_score(similar_y, similar_preds)
+            else:
+                situation_accuracy = None
       
           # -------------------------
           # Situation Insight
