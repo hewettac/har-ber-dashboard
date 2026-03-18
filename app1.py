@@ -302,7 +302,6 @@ if uploaded_file:
     # Tab 4 - Concept Effectiveness
     # --------------
         with tab4:
-            
             st.markdown("### Concept Effectiveness")
 
             with st.expander("How to read this chart"):
@@ -315,7 +314,7 @@ if uploaded_file:
 
                 **Bubble Size:** Number of times the concept was run
 
-                The best concepts are large and towards the right:
+                The best concepts arre large and towards the right:
                 • High success rate
                 • High average gain
                 • Large sample size
@@ -339,6 +338,7 @@ if uploaded_file:
                 y="avg_gain",
                 size="plays",
                 hover_name="concept",
+                title="Concept Effectiveness",
                 template="plotly_dark"
             )
 
