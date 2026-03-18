@@ -436,82 +436,81 @@ if uploaded_file:
    # -------------------------
    # TAB UI
    # -------------------------
-        with tab5:
+       with tab5:
    
-            st.markdown("## 🧠 Elite Play Prediction Engine")
+           st.markdown("## 🧠 Elite Play Prediction Engine")
    
        # Load datasets
-            try:
-                base_df = load_base_data()
-            except:
-                st.error("Missing AllPlaysTrainData.csv")
-                st.stop()
-   
+         try:
+               base_df = load_base_data()
+         except:
+               st.error("Missing AllPlaysTrainData.csv")
+               st.stop()
             weekly_df = df.copy()
    
        # Train model (cached = FAST)
-            model, le = train_model(base_df, weekly_df)
+          model, le = train_model(base_df, weekly_df)
    
-            st.markdown("## 🎯 Prediction Results")
+          st.markdown("## 🎯 Prediction Results")
             
-            col1, col2, col3 = st.columns(3)
+          col1, col2, col3 = st.columns(3)
             
-            with col1:
-                st.metric("Predicted Play", predicted_play)
+          with col1:
+               st.metric("Predicted Play", predicted_play)
             
-            with col2:
-                st.metric("Confidence", f"{top_confidence:.1f}%")
+          with col2:
+               st.metric("Confidence", f"{top_confidence:.1f}%")
             
-            with col3:
-                st.metric("Model Accuracy", f"{overall_accuracy*100:.1f}%")
+          with col3:
+               st.metric("Model Accuracy", f"{overall_accuracy*100:.1f}%")
    
           # -------------------------
           # Prediction
           # -------------------------
-            probs = model.predict_proba(input_df[features])[0]
+          probs = model.predict_proba(input_df[features])[0]
       
-            top_indices = np.argsort(probs)[::-1][:3]
+          top_indices = np.argsort(probs)[::-1][:3]
       
-            st.markdown("### 🎯 Top Play Predictions")
+          st.markdown("### 🎯 Top Play Predictions")
       
-            for i in top_indices:
-              play = le.inverse_transform([i])[0]
-              confidence = probs[i] * 100
+          for i in top_indices:
+            play = le.inverse_transform([i])[0]
+            confidence = probs[i] * 100
       
-              st.metric(play, f"{confidence:.1f}%")
+            st.metric(play, f"{confidence:.1f}%")
 
             # -------------------------
             # Prediction
             # -------------------------
-            pred_class = np.argmax(probs)
-            predicted_play = le.inverse_transform([pred_class])[0]
-            top_confidence = probs[pred_class] * 100
+          pred_class = np.argmax(probs)
+          predicted_play = le.inverse_transform([pred_class])[0]
+          top_confidence = probs[pred_class] * 100
 
                        # -------------------------
             # Situation-Specific Accuracy
             # -------------------------
             # Find similar plays in test set
-            mask = (
-                (X_test["down"] == pred_down) &
-                (abs(X_test["distance"] - pred_dist) <= 2) &
-                (abs(X_test["yardline"] - pred_yard) <= 10)
-            )
+          mask = (
+               (X_test["down"] == pred_down) &
+               (abs(X_test["distance"] - pred_dist) <= 2) &
+               (abs(X_test["yardline"] - pred_yard) <= 10)
+          )
             
-            similar_X = X_test[mask]
-            similar_y = y_test[mask]
+          similar_X = X_test[mask]
+          similar_y = y_test[mask]
             
-            if len(similar_X) > 20:
-                similar_preds = model.predict(similar_X)
-                situation_accuracy = accuracy_score(similar_y, similar_preds)
-            else:
-                situation_accuracy = None
+          if len(similar_X) > 20:
+               similar_preds = model.predict(similar_X)
+               situation_accuracy = accuracy_score(similar_y, similar_preds)
+          else:
+               situation_accuracy = None
       
           # -------------------------
           # Situation Insight
           # -------------------------
-            st.markdown("### 📊 Situation Insight")
+          st.markdown("### 📊 Situation Insight")
       
-            if pred_down == 3 and pred_dist >= 7:
-               st.info("Likely PASS situation (3rd & long tendency)")
-            elif pred_down == 1 and pred_dist <= 3:
-               st.info("High RUN probability (short yardage)")
+          if pred_down == 3 and pred_dist >= 7:
+            st.info("Likely PASS situation (3rd & long tendency)")
+          elif pred_down == 1 and pred_dist <= 3:
+            st.info("High RUN probability (short yardage)")
