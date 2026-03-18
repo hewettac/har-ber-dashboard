@@ -617,6 +617,147 @@ with tab4:
 with tab5:
     st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
 
+    # -------------------------
+    # Feature Engineering
+    # -------------------------
+    def add_prediction_features(df):
+        df = df.copy()
+        df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
+        df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
+        df["down"] = pd.to_numeric(df["down"], errors="coerce")
+
+        df["distance_bucket"] = pd.cut(
+            df["distance"],
+            bins=[-1, 3, 7, 100],
+            labels=[0, 1, 2]
+        ).astype(float)
+
+        df["field_zone"] = pd.cut(
+            df["yardline"],
+            bins=[-51, -20, 20, 51],
+            labels=[0, 1, 2]
+        ).astype(float)
+
+        return df
+
+    # -------------------------
+    # Load Base Dataset
+    # -------------------------
+    @st.cache_data
+    def load_base_data():
+        base = pd.read_csv("AllPlaysTrainData.csv")
+        base = standardize_columns(base)
+        base = ensure_numeric_columns(base, ["down", "distance", "yardline", "gain_loss", "quarter"])
+        return base
+
+    # -------------------------
+    # Train Model
+    # -------------------------
+    @st.cache_resource(show_spinner=False)
+    def train_model(base_df, weekly_df):
+        base_df = base_df.copy()
+        weekly_df = weekly_df.copy()
+
+        base_df = standardize_columns(base_df)
+        weekly_df = standardize_columns(weekly_df)
+
+        required_cols = ["down", "distance", "yardline", "play_type"]
+        for col in required_cols:
+            if col not in base_df.columns:
+                raise ValueError(f"Base data missing column: {col}")
+            if col not in weekly_df.columns:
+                raise ValueError(f"Weekly data missing column: {col}")
+
+        base_df = add_prediction_features(base_df)
+        weekly_df = add_prediction_features(weekly_df)
+
+        base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
+        weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
+
+        if weekly_df.empty:
+            raise ValueError("Weekly dataset has no usable rows.")
+
+        # Transfer-learning style weighting
+        base_df["weight"] = 1
+        weekly_df["weight"] = 6
+
+        combined = pd.concat([base_df, weekly_df], ignore_index=True)
+
+        features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+
+        # Clean play types
+        combined["play_type"] = combined["play_type"].astype(str).str.strip()
+        combined = combined[combined["play_type"] != ""].copy()
+
+        # Remove rare play types before encoding
+        counts = combined["play_type"].value_counts()
+        valid_types = counts[counts >= 2].index
+        combined = combined[combined["play_type"].isin(valid_types)].copy()
+
+        n_classes = combined["play_type"].nunique()
+        if n_classes < 2:
+            raise ValueError("Not enough play types with at least 2 samples to train the model.")
+
+        # Hard reset labels to contiguous integers
+        play_types = sorted(combined["play_type"].unique())
+        play_to_int = {p: i for i, p in enumerate(play_types)}
+        int_to_play = {i: p for p, i in play_to_int.items()}
+
+        combined["y"] = combined["play_type"].map(play_to_int).astype(int)
+
+        X = combined[features].reset_index(drop=True)
+        y = combined["y"].reset_index(drop=True)
+        w = combined["weight"].reset_index(drop=True)
+
+        # Safety check
+        if len(X) == 0 or len(y) == 0:
+            raise ValueError("No usable rows remain after cleaning.")
+
+        if y.nunique() < 2:
+            raise ValueError("Training data collapsed to one class after cleaning.")
+
+        X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+            X, y, w, test_size=0.2, random_state=42, stratify=y
+        )
+
+        if y_train.nunique() < 2:
+            raise ValueError("Training split contains fewer than 2 classes.")
+
+        # Binary vs multi-class handling
+        if n_classes == 2:
+            model = XGBClassifier(
+                n_estimators=400,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                objective="binary:logistic",
+                eval_metric="logloss",
+                random_state=42
+            )
+        else:
+            model = XGBClassifier(
+                n_estimators=400,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                objective="multi:softprob",
+                num_class=n_classes,
+                eval_metric="mlogloss",
+                random_state=42
+            )
+
+        model.fit(X_train, y_train, sample_weight=w_train)
+
+        preds = model.predict(X_test)
+        acc = accuracy_score(y_test, preds)
+
+        return model, int_to_play, acc, X_test, y_test, features, n_classes
+
+    # -------------------------
+    # Load Data
+    # -------------------------
     try:
         base_df = load_base_data()
     except Exception as e:
@@ -626,13 +767,16 @@ with tab5:
     weekly_df = df.copy()
 
     try:
-        model, int_to_play, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
+        model, int_to_play, accuracy, X_test, y_test, features, n_classes = train_model(base_df, weekly_df)
     except Exception as e:
         st.error(f"Model training failed: {e}")
         st.stop()
 
     st.success(f"Overall Model Accuracy: {accuracy:.2%}")
 
+    # -------------------------
+    # User Inputs
+    # -------------------------
     st.markdown("### Predict Play")
 
     col1, col2, col3 = st.columns(3)
@@ -655,11 +799,19 @@ with tab5:
     input_df = add_prediction_features(input_df)
     input_X = input_df[features]
 
+    # Predict probabilities
     probs = model.predict_proba(input_X)[0]
+
+    # Binary models sometimes return only one probability column depending on wrapper behavior,
+    # so normalize to a full class probability vector
+    if n_classes == 2 and len(probs) == 1:
+        probs = np.array([1 - probs[0], probs[0]])
+
     pred_class = int(np.argmax(probs))
     predicted_play = int_to_play[pred_class]
     prediction_confidence = float(np.max(probs))
 
+    # Situation-specific accuracy
     mask = (
         (X_test["down"] == pred_down) &
         (abs(X_test["distance"] - pred_dist) <= 2) &
@@ -674,38 +826,53 @@ with tab5:
     else:
         situation_accuracy = None
 
+    # -------------------------
+    # Display Results
+    # -------------------------
     st.markdown("### Results")
 
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.metric("Predicted Play", predicted_play)
-    with m2:
-        st.metric("Prediction Confidence", f"{prediction_confidence:.1%}")
-    with m3:
-        st.metric("Overall Model Accuracy", f"{accuracy:.1%}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Predicted Play", predicted_play)
+    c2.metric("Confidence", f"{prediction_confidence:.1%}")
+    c3.metric("Model Accuracy", f"{accuracy:.1%}")
 
     if situation_accuracy is not None:
         st.metric("Situation Accuracy", f"{situation_accuracy:.1%}")
     else:
-        st.info("Not enough similar plays to calculate situation accuracy.")
+        st.info("Not enough similar plays for situation accuracy.")
 
-    st.markdown("### Top 3 Likely Plays")
+    # -------------------------
+    # Top 3 Plays
+    # -------------------------
+    st.markdown("### Top 3 Plays")
 
     top_idx = np.argsort(probs)[::-1][:3]
     for i in top_idx:
-        st.write(f"{int_to_play[i]} — {probs[i]:.1%}")
+        if i in int_to_play:
+            st.write(f"{int_to_play[i]} — {probs[i]:.1%}")
 
-    st.markdown("### Full Probability Breakdown")
+    # -------------------------
+    # Probability Table
+    # -------------------------
+    st.markdown("### Full Probabilities")
 
-    prob_df = pd.DataFrame({
-        "Play": [int_to_play[i] for i in range(len(probs))],
-        "Probability": probs
-    }).sort_values("Probability", ascending=False)
+    prob_rows = []
+    for i in range(len(probs)):
+        if i in int_to_play:
+            prob_rows.append({
+                "Play": int_to_play[i],
+                "Probability": probs[i]
+            })
 
+    prob_df = pd.DataFrame(prob_rows).sort_values("Probability", ascending=False)
     prob_df["Probability"] = prob_df["Probability"].map(lambda x: f"{x:.2%}")
     st.dataframe(prob_df, use_container_width=True)
 
+    # -------------------------
+    # Insight
+    # -------------------------
     st.markdown("### Situation Insight")
+
     if pred_down == 3 and pred_dist >= 7:
         st.info("Likely passing tendency: long-yardage third down.")
     elif pred_down == 1 and pred_dist <= 3:
