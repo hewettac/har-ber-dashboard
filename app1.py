@@ -436,7 +436,7 @@ if uploaded_file:
    # -------------------------
    # TAB UI
    # -------------------------
-   with tab5:
+     with tab5:
    
          st.markdown("## 🧠 Elite Play Prediction Engine")
    
