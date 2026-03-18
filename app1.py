@@ -9,7 +9,7 @@ from xgboost import XGBClassifier
 # -------------------------
 # Page Config
 # -------------------------
-st.set_page_config(page_title="Har-Ber Dashboard", layout="wide")
+st.set_page_config(page_title="Har-Ber Basic Dashboard", layout="wide")
 
 # Uncomment once if you need to force-clear old cached model behavior, then remove
 # st.cache_data.clear()
@@ -63,7 +63,7 @@ st.sidebar.markdown('</div>', unsafe_allow_html=True)
 # -------------------------
 # Sidebar Upload
 # -------------------------
-st.sidebar.title("Har-Ber Basic Dashboard")
+st.sidebar.title("Har-Ber Dashboard")
 uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx", "xls"])
 
 # -------------------------
