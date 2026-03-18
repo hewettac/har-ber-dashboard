@@ -9,7 +9,7 @@ from xgboost import XGBClassifier
 # -------------------------
 # Page Config
 # -------------------------
-st.set_page_config(page_title="Har-Ber Basic Dashboard", layout="wide")
+st.set_page_config(page_title="Har-Ber Dashboard", layout="wide")
 
 # Uncomment once if you need to force-clear old cached model behavior, then remove
 # st.cache_data.clear()
