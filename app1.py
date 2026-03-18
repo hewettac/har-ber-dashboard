@@ -436,68 +436,68 @@ if uploaded_file:
    # -------------------------
    # TAB UI
    # -------------------------
-     with tab5:
+        with tab5:
    
-         st.markdown("## 🧠 Elite Play Prediction Engine")
+            st.markdown("## 🧠 Elite Play Prediction Engine")
    
        # Load datasets
-         try:
-             base_df = load_base_data()
-         except:
-             st.error("Missing AllPlaysTrainData.csv")
-             st.stop()
+            try:
+                base_df = load_base_data()
+            except:
+                st.error("Missing AllPlaysTrainData.csv")
+                st.stop()
    
-         weekly_df = df.copy()
+            weekly_df = df.copy()
    
        # Train model (cached = FAST)
-         model, le = train_model(base_df, weekly_df)
+            model, le = train_model(base_df, weekly_df)
    
        # -------------------------
        # Inputs
        # -------------------------
-         col1, col2, col3 = st.columns(3)
+          col1, col2, col3 = st.columns(3)
    
-         with col1:
-             pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
+          with col1:
+              pred_down = st.selectbox("Down", sorted(df["down"].dropna().unique()))
    
-         with col2:
-             pred_dist = st.slider("Distance", 1, 20, 7)
+          with col2:
+              pred_dist = st.slider("Distance", 1, 20, 7)
    
-         with col3:
-             pred_yard = st.slider("Yardline", -50, 50, 0)
+          with col3:
+              pred_yard = st.slider("Yardline", -50, 50, 0)
    
        # Build input
-         input_df = pd.DataFrame({
-             "down": [pred_down],
-             "distance": [pred_dist],
-             "yardline": [pred_yard]
-         })
+          input_df = pd.DataFrame({
+              "down": [pred_down],
+              "distance": [pred_dist],
+              "yardline": [pred_yard]
+          })
    
-         input_df = add_features(input_df)
+          input_df = add_features(input_df)
    
-         features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
+          features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
    
        # -------------------------
        # Prediction
        # -------------------------
-         probs = model.predict_proba(input_df[features])[0]
+          probs = model.predict_proba(input_df[features])[0]
    
-         top_indices = np.argsort(probs)[::-1][:3]
+          top_indices = np.argsort(probs)[::-1][:3]
    
-         st.markdown("### 🎯 Top Play Predictions")
+          st.markdown("### 🎯 Top Play Predictions")
    
-         for i in top_indices:
-             play = le.inverse_transform([i])[0]
-             confidence = probs[i] * 100
+          for i in top_indices:
+              play = le.inverse_transform([i])[0]
+              confidence = probs[i] * 100
    
-             st.metric(play, f"{confidence:.1f}%")
+              st.metric(play, f"{confidence:.1f}%")
    
        # -------------------------
        # Situation Insight
        # -------------------------
-         st.markdown("### 📊 Situation Insight")
+          st.markdown("### 📊 Situation Insight")
    
-         if pred_down == 3 and pred_dist >= 7:
-             st.info("Likely PASS situation (3rd & long tendency)")
-         elif pred_down == 1 and pred_dist <= 3:
-             st.info("High RUN probability (short yardage)")
+          if pred_down == 3 and pred_dist >= 7:
+              st.info("Likely PASS situation (3rd & long tendency)")
+          elif pred_down == 1 and pred_dist <= 3:
+              st.info("High RUN probability (short yardage)")
