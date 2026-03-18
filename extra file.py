@@ -4,7 +4,6 @@ import plotly.express as px
 import numpy as np
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 # -------------------------
@@ -12,8 +11,12 @@ from xgboost import XGBClassifier
 # -------------------------
 st.set_page_config(page_title="Har-Ber Basic Dashboard", layout="wide")
 
+# Uncomment once if you need to force-clear old cached model behavior, then remove
+# st.cache_data.clear()
+# st.cache_resource.clear()
+
 # -------------------------
-# Styles
+# Custom CSS
 # -------------------------
 st.markdown("""
 <style>
@@ -42,26 +45,29 @@ st.markdown("""
     font-weight: 500;
 }
 .section-header {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 700;
     color: #7FDBFF;
-    margin: 10px 0 15px 0;
+    margin: 8px 0 12px 0;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------
-# Sidebar
+# Sidebar Logo
 # -------------------------
 st.sidebar.markdown('<div style="text-align:center; margin-bottom:20px;">', unsafe_allow_html=True)
 st.sidebar.image("logo_har-ber-high-school.png", width=150)
-st.sidebar.markdown("</div>", unsafe_allow_html=True)
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
+# -------------------------
+# Sidebar Upload
+# -------------------------
 st.sidebar.title("Har-Ber Basic Dashboard")
 uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx", "xls"])
 
 # -------------------------
-# Helpers
+# Column Mapping
 # -------------------------
 COLUMN_MAP = {
     "down": ["down", "dn"],
@@ -83,7 +89,9 @@ COLUMN_MAP = {
     "quarter": ["quarter", "qtr"]
 }
 
-
+# -------------------------
+# Helper Functions
+# -------------------------
 def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = df.columns.str.lower().str.strip()
@@ -98,7 +106,7 @@ def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def ensure_numeric_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+def ensure_numeric_columns(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     df = df.copy()
     for col in cols:
         if col in df.columns:
@@ -129,12 +137,15 @@ def custom_yard_group(yardline):
         return "+19 - +10"
     elif 9 >= yardline >= 0:
         return "+9 - 0"
-    return "Other"
+    else:
+        return "Other"
 
 
 def add_prediction_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df = ensure_numeric_columns(df, ["down", "distance", "yardline"])
+    df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
+    df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
+    df["down"] = pd.to_numeric(df["down"], errors="coerce")
 
     df["distance_bucket"] = pd.cut(
         df["distance"],
@@ -159,17 +170,20 @@ def load_base_data() -> pd.DataFrame:
     return base
 
 
-@st.cache_resource
-def train_prediction_model(base_df: pd.DataFrame, weekly_df: pd.DataFrame):
+@st.cache_resource(show_spinner=False)
+def train_model(base_df, weekly_df):
     base_df = base_df.copy()
     weekly_df = weekly_df.copy()
+
+    base_df = standardize_columns(base_df)
+    weekly_df = standardize_columns(weekly_df)
 
     required_cols = ["down", "distance", "yardline", "play_type"]
     for col in required_cols:
         if col not in base_df.columns:
-            raise ValueError(f"Base data missing required column: {col}")
+            raise ValueError(f"Base data missing column: {col}")
         if col not in weekly_df.columns:
-            raise ValueError(f"Weekly uploaded data missing required column: {col}")
+            raise ValueError(f"Weekly data missing column: {col}")
 
     base_df = add_prediction_features(base_df)
     weekly_df = add_prediction_features(weekly_df)
@@ -178,7 +192,7 @@ def train_prediction_model(base_df: pd.DataFrame, weekly_df: pd.DataFrame):
     weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
 
     if weekly_df.empty:
-        raise ValueError("Weekly dataset has no usable rows after cleaning.")
+        raise ValueError("Weekly dataset has no usable rows.")
 
     # Transfer-learning style weighting
     base_df["weight"] = 1
@@ -186,29 +200,30 @@ def train_prediction_model(base_df: pd.DataFrame, weekly_df: pd.DataFrame):
 
     combined = pd.concat([base_df, weekly_df], ignore_index=True)
 
-    le = LabelEncoder()
-    combined["play_type_encoded"] = le.fit_transform(combined["play_type"].astype(str))
-
     features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
 
+    # Remove rare classes BEFORE encoding
+    combined["play_type"] = combined["play_type"].astype(str).str.strip()
+    counts = combined["play_type"].value_counts()
+    valid_types = counts[counts >= 2].index
+    combined = combined[combined["play_type"].isin(valid_types)].copy()
+
+    if combined["play_type"].nunique() < 2:
+        raise ValueError("Not enough play types to train model.")
+
+    # Hard reset labels to contiguous integers
+    play_types = sorted(combined["play_type"].unique())
+    play_to_int = {p: i for i, p in enumerate(play_types)}
+    int_to_play = {i: p for p, i in play_to_int.items()}
+
+    combined["y"] = combined["play_type"].map(play_to_int)
+
     X = combined[features].reset_index(drop=True)
-    y = combined["play_type_encoded"].reset_index(drop=True)
-    weights = combined["weight"].reset_index(drop=True)
-
-    # Remove ultra-rare classes that break stratified split
-    class_counts = y.value_counts()
-    valid_classes = class_counts[class_counts >= 2].index
-
-    mask = y.isin(valid_classes)
-    X = X.loc[mask].reset_index(drop=True)
-    y = y.loc[mask].reset_index(drop=True)
-    weights = weights.loc[mask].reset_index(drop=True)
-
-    if y.nunique() < 2:
-        raise ValueError("Not enough play types with at least 2 samples to train the model.")
+    y = combined["y"].reset_index(drop=True)
+    w = combined["weight"].reset_index(drop=True)
 
     X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-        X, y, weights, test_size=0.2, random_state=42, stratify=y
+        X, y, w, test_size=0.2, random_state=42, stratify=y
     )
 
     model = XGBClassifier(
@@ -224,14 +239,13 @@ def train_prediction_model(base_df: pd.DataFrame, weekly_df: pd.DataFrame):
 
     model.fit(X_train, y_train, sample_weight=w_train)
 
-    preds = model.predict(X_test)
-    overall_accuracy = accuracy_score(y_test, preds)
+    acc = accuracy_score(y_test, model.predict(X_test))
 
-    return model, le, overall_accuracy, X_test, y_test, features
+    return model, int_to_play, acc, X_test, y_test, features
 
 
 # -------------------------
-# Main App
+# Main App Logic
 # -------------------------
 if not uploaded_file:
     st.info("Upload a Hudl Excel file in the sidebar to open the dashboard.")
@@ -259,8 +273,8 @@ yard_order = [
 # -------------------------
 st.sidebar.header("Filters")
 
-down_choices = sorted([x for x in df["down"].dropna().unique()])
-if not down_choices:
+down_choices = sorted(df["down"].dropna().unique())
+if len(down_choices) == 0:
     st.error("No valid down values found in uploaded file.")
     st.stop()
 
@@ -269,7 +283,7 @@ down_selected = st.sidebar.selectbox("Down", down_choices)
 df_down = df[df["down"] == down_selected]
 yard_choices = [yg for yg in yard_order if yg in df_down["yard_group"].unique()]
 
-if not yard_choices:
+if len(yard_choices) == 0:
     st.error("No valid yard groups found for the selected down.")
     st.stop()
 
@@ -292,7 +306,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # -------------------------
-# Tab 1
+# Tab 1 - Overall Snapshot
 # -------------------------
 with tab1:
     st.markdown("<div class='section-header'>Overall Snapshot</div>", unsafe_allow_html=True)
@@ -332,11 +346,8 @@ with tab1:
             template="plotly_dark",
             color_discrete_sequence=["#7FDBFF"]
         )
-
-        r1c1, r1c2 = st.columns(2)
-        r1c1.plotly_chart(gain_fig_all, use_container_width=True)
     else:
-        st.warning("No gain/loss column available for overall metrics.")
+        gain_fig_all = None
 
     if {"concept", "play_direction"}.issubset(df.columns):
         top_concepts_all = (
@@ -357,46 +368,48 @@ with tab1:
             template="plotly_dark",
             color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"]
         )
+    else:
+        concept_fig_all = None
 
-        if "r1c2" in locals():
-            r1c2.plotly_chart(concept_fig_all, use_container_width=True)
-        else:
-            st.plotly_chart(concept_fig_all, use_container_width=True)
+    r1c1, r1c2 = st.columns(2)
+    if gain_fig_all is not None:
+        r1c1.plotly_chart(gain_fig_all, use_container_width=True)
+    if concept_fig_all is not None:
+        r1c2.plotly_chart(concept_fig_all, use_container_width=True)
+
+    st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
+
+    r2c1, r2c2 = st.columns(2)
 
     if "play_type" in df.columns:
         play_type_summary_all = df["play_type"].value_counts().reset_index()
         play_type_summary_all.columns = ["play_type", "count"]
 
-        run_pass_fig_all = px.pie(
+        play_type_fig_all = px.pie(
             play_type_summary_all,
             names="play_type",
             values="count",
             title="Play Type %",
-            color="play_type",
             template="plotly_dark"
         )
+        r2c1.plotly_chart(play_type_fig_all, use_container_width=True)
 
-        st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
+    if "concept" in df.columns:
+        concept_summary_all = df["concept"].value_counts().head(6).reset_index()
+        concept_summary_all.columns = ["concept", "count"]
 
-        r2c1, r2c2 = st.columns(2)
-        r2c1.plotly_chart(run_pass_fig_all, use_container_width=True)
-
-        if "concept" in df.columns:
-            concept_summary_all = df["concept"].value_counts().head(6).reset_index()
-            concept_summary_all.columns = ["concept", "count"]
-
-            concept_pie_fig_all = px.pie(
-                concept_summary_all,
-                names="concept",
-                values="count",
-                title="Most Frequent Concepts",
-                color_discrete_sequence=px.colors.sequential.Blues,
-                template="plotly_dark"
-            )
-            r2c2.plotly_chart(concept_pie_fig_all, use_container_width=True)
+        concept_pie_fig_all = px.pie(
+            concept_summary_all,
+            names="concept",
+            values="count",
+            title="Most Frequent Concepts",
+            color_discrete_sequence=px.colors.sequential.Blues,
+            template="plotly_dark"
+        )
+        r2c2.plotly_chart(concept_pie_fig_all, use_container_width=True)
 
 # -------------------------
-# Tab 2
+# Tab 2 - Filtered Snapshot
 # -------------------------
 with tab2:
     st.markdown("<div class='section-header'>Filtered by Down / Yardline</div>", unsafe_allow_html=True)
@@ -438,7 +451,6 @@ with tab2:
         )
     else:
         gain_fig = None
-        st.warning("No gain/loss data available for filtered metrics.")
 
     if {"concept", "play_direction"}.issubset(selected.columns):
         top_concepts = (
@@ -476,15 +488,14 @@ with tab2:
         play_type_summary = selected["play_type"].value_counts().reset_index()
         play_type_summary.columns = ["play_type", "count"]
 
-        run_pass_fig = px.pie(
+        play_type_fig = px.pie(
             play_type_summary,
             names="play_type",
             values="count",
             title="Play Type %",
-            color="play_type",
             template="plotly_dark"
         )
-        r2c1.plotly_chart(run_pass_fig, use_container_width=True)
+        r2c1.plotly_chart(play_type_fig, use_container_width=True)
 
     if "concept" in selected.columns:
         concept_summary = selected["concept"].value_counts().head(6).reset_index()
@@ -504,7 +515,7 @@ with tab2:
     st.dataframe(selected, use_container_width=True)
 
 # -------------------------
-# Tab 3
+# Tab 3 - Success Heatmap
 # -------------------------
 with tab3:
     st.markdown("<div class='section-header'>Play Success Heatmap</div>", unsafe_allow_html=True)
@@ -513,12 +524,12 @@ with tab3:
         st.write("""
         This heatmap shows the success rate of plays by down and field position.
 
-        Success is defined as gaining 4 or more yards.
-        Darker cells indicate a higher success rate.
+        - Darker blue = higher success rate
+        - Success is defined as gaining 4 or more yards
         """)
 
     if "gain_loss" not in df.columns:
-        st.warning("The uploaded file does not contain GN/LS / gain_loss.")
+        st.warning("No gain/loss data found.")
     else:
         df["success"] = df["gain_loss"] >= 4
 
@@ -556,25 +567,25 @@ with tab3:
 
             st.plotly_chart(heatmap_fig, use_container_width=True)
         else:
-            st.info("Not enough data to build the heatmap.")
+            st.info("Not enough data to display heatmap.")
 
 # -------------------------
-# Tab 4
+# Tab 4 - Concept Effectiveness
 # -------------------------
 with tab4:
     st.markdown("<div class='section-header'>Concept Effectiveness</div>", unsafe_allow_html=True)
 
     with st.expander("How to read this chart"):
         st.write("""
-        This chart evaluates concepts using:
+        This chart evaluates offensive concepts using three metrics:
 
         X-axis: Success Rate
-        Y-axis: Average Yards Gained
-        Bubble Size: Number of Plays
+        Y-axis: Average yards gained
+        Bubble Size: Number of plays
         """)
 
     if not {"concept", "gain_loss"}.issubset(df.columns):
-        st.warning("The uploaded file needs OFF PLAY / concept and GN/LS / gain_loss for this chart.")
+        st.warning("Need concept and gain/loss columns for this chart.")
     else:
         concept_stats = (
             df.groupby("concept")
@@ -600,167 +611,40 @@ with tab4:
         st.plotly_chart(bubble, use_container_width=True)
         st.dataframe(concept_stats, use_container_width=True)
 
-# ------------------------
+# -------------------------
 # Tab 5 - Play Prediction
-# ------------------------
+# -------------------------
 with tab5:
-
     st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
 
-    # -------------------------
-    # Feature Engineering
-    # -------------------------
-    def add_features(df):
-        df = df.copy()
-
-        df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
-        df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
-        df["down"] = pd.to_numeric(df["down"], errors="coerce")
-
-        df["distance_bucket"] = pd.cut(
-            df["distance"],
-            bins=[-1, 3, 7, 100],
-            labels=[0, 1, 2]
-        ).astype(float)
-
-        df["field_zone"] = pd.cut(
-            df["yardline"],
-            bins=[-51, -20, 20, 51],
-            labels=[0, 1, 2]
-        ).astype(float)
-
-        return df
-
-    # -------------------------
-    # Load Base Dataset
-    # -------------------------
-    @st.cache_data
-    def load_base_data():
-        base = pd.read_csv("AllPlaysTrainData.csv")
-        base.columns = base.columns.str.lower().str.strip()
-        return base
-
-    # -------------------------
-    # Train Model
-    # -------------------------
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score
-    from sklearn.preprocessing import LabelEncoder
-
-    @st.cache_resource(show_spinner=False)
-def train_model(base_df, weekly_df):
-
-    base_df = base_df.copy()
-    weekly_df = weekly_df.copy()
-
-    base_df.columns = base_df.columns.str.lower().str.strip()
-    weekly_df.columns = weekly_df.columns.str.lower().str.strip()
-
-    required_cols = ["down", "distance", "yardline", "play_type"]
-    for col in required_cols:
-        if col not in base_df.columns:
-            raise ValueError(f"Base data missing column: {col}")
-        if col not in weekly_df.columns:
-            raise ValueError(f"Weekly data missing column: {col}")
-
-    base_df = add_features(base_df)
-    weekly_df = add_features(weekly_df)
-
-    base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-    weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-
-    if weekly_df.empty:
-        raise ValueError("Weekly dataset has no usable rows.")
-
-    # Weight weekly data more heavily
-    base_df["weight"] = 1
-    weekly_df["weight"] = 6
-
-    combined = pd.concat([base_df, weekly_df], ignore_index=True)
-
-    features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
-
-    # Keep only play types with at least 2 examples
-    combined["play_type"] = combined["play_type"].astype(str).str.strip()
-    play_counts = combined["play_type"].value_counts()
-    valid_play_types = play_counts[play_counts >= 2].index
-    combined = combined[combined["play_type"].isin(valid_play_types)].copy()
-
-    if combined["play_type"].nunique() < 2:
-        raise ValueError("Not enough play types with at least 2 samples to train the model.")
-
-    # HARD RESET LABELS TO 0..N-1
-    play_type_names = sorted(combined["play_type"].unique())
-    play_type_to_int = {name: i for i, name in enumerate(play_type_names)}
-    int_to_play_type = {i: name for name, i in play_type_to_int.items()}
-
-    combined["play_type_encoded"] = combined["play_type"].map(play_type_to_int).astype(int)
-
-    X = combined[features].reset_index(drop=True)
-    y = combined["play_type_encoded"].reset_index(drop=True)
-    weights = combined["weight"].reset_index(drop=True)
-
-    # Safety check
-    unique_y = sorted(y.unique().tolist())
-    expected_y = list(range(len(unique_y)))
-    if unique_y != expected_y:
-        raise ValueError(f"Encoded classes are not contiguous. Got {unique_y}, expected {expected_y}")
-
-    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-        X, y, weights, test_size=0.2, random_state=42, stratify=y
-    )
-
-    model = XGBClassifier(
-        n_estimators=400,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        objective="multi:softprob",
-        eval_metric="mlogloss",
-        random_state=42
-    )
-
-    model.fit(X_train, y_train, sample_weight=w_train)
-
-    preds = model.predict(X_test)
-    accuracy = accuracy_score(y_test, preds)
-
-    return model, int_to_play_type, accuracy, X_test, y_test, features
-    # -------------------------
-    # Load Data
-    # -------------------------
     try:
         base_df = load_base_data()
     except Exception as e:
-        st.error(f"Error loading base dataset: {e}")
+        st.error(f"Error loading AllPlaysTrainData.csv: {e}")
         st.stop()
 
     weekly_df = df.copy()
 
     try:
-        model, int_to_play_type, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
+        model, int_to_play, accuracy, X_test, y_test, features = train_model(base_df, weekly_df)
     except Exception as e:
         st.error(f"Model training failed: {e}")
         st.stop()
 
-    st.success(f"Model Accuracy: {accuracy:.2%}")
+    st.success(f"Overall Model Accuracy: {accuracy:.2%}")
 
-    # -------------------------
-    # User Inputs
-    # -------------------------
     st.markdown("### Predict Play")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        pred_down = st.selectbox("Down", [1,2,3,4])
+        pred_down = st.selectbox("Down", [1, 2, 3, 4])
 
     with col2:
-        pred_dist = st.number_input("Distance", 1, 30, 5)
+        pred_dist = st.number_input("Distance", min_value=1, max_value=30, value=5)
 
     with col3:
-        pred_yard = st.number_input("Yardline", -50, 50, 0)
+        pred_yard = st.number_input("Yardline", min_value=-50, max_value=50, value=0)
 
     input_df = pd.DataFrame([{
         "down": pred_down,
@@ -768,17 +652,14 @@ def train_model(base_df, weekly_df):
         "yardline": pred_yard
     }])
 
-    input_df = add_features(input_df)
+    input_df = add_prediction_features(input_df)
+    input_X = input_df[features]
 
-    probs = model.predict_proba(input_df[features])[0]
+    probs = model.predict_proba(input_X)[0]
+    pred_class = int(np.argmax(probs))
+    predicted_play = int_to_play[pred_class]
+    prediction_confidence = float(np.max(probs))
 
-    pred_class = np.argmax(probs)
-    predicted_play = int_to_play_type[pred_class]
-    confidence = probs[pred_class]
-
-    # -------------------------
-    # Situation Accuracy
-    # -------------------------
     mask = (
         (X_test["down"] == pred_down) &
         (abs(X_test["distance"] - pred_dist) <= 2) &
@@ -789,56 +670,45 @@ def train_model(base_df, weekly_df):
     similar_y = y_test[mask]
 
     if len(similar_X) >= 10:
-        situation_acc = accuracy_score(similar_y, model.predict(similar_X))
+        situation_accuracy = accuracy_score(similar_y, model.predict(similar_X))
     else:
-        situation_acc = None
+        situation_accuracy = None
 
-    # -------------------------
-    # Display Results
-    # -------------------------
     st.markdown("### Results")
 
-    c1, c2, c3 = st.columns(3)
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric("Predicted Play", predicted_play)
+    with m2:
+        st.metric("Prediction Confidence", f"{prediction_confidence:.1%}")
+    with m3:
+        st.metric("Overall Model Accuracy", f"{accuracy:.1%}")
 
-    c1.metric("Predicted Play", predicted_play)
-    c2.metric("Confidence", f"{confidence:.1%}")
-    c3.metric("Model Accuracy", f"{accuracy:.1%}")
-
-    if situation_acc:
-        st.metric("Situation Accuracy", f"{situation_acc:.1%}")
+    if situation_accuracy is not None:
+        st.metric("Situation Accuracy", f"{situation_accuracy:.1%}")
     else:
-        st.info("Not enough similar plays for situation accuracy")
+        st.info("Not enough similar plays to calculate situation accuracy.")
 
-    # -------------------------
-    # Top 3 Plays
-    # -------------------------
-    st.markdown("### Top 3 Plays")
+    st.markdown("### Top 3 Likely Plays")
 
     top_idx = np.argsort(probs)[::-1][:3]
-
     for i in top_idx:
-        st.write(f"{int_to_play_type[i]} — {probs[i]:.1%}")
+        st.write(f"{int_to_play[i]} — {probs[i]:.1%}")
 
-    # -------------------------
-    # Probability Table
-    # -------------------------
-    st.markdown("### Full Probabilities")
+    st.markdown("### Full Probability Breakdown")
 
     prob_df = pd.DataFrame({
-        "Play": [int_to_play_type[i] for i in range(len(probs))],
+        "Play": [int_to_play[i] for i in range(len(probs))],
         "Probability": probs
     }).sort_values("Probability", ascending=False)
 
     prob_df["Probability"] = prob_df["Probability"].map(lambda x: f"{x:.2%}")
-
     st.dataframe(prob_df, use_container_width=True)
 
-    # -------------------------
-    # Insight
-    # -------------------------
     st.markdown("### Situation Insight")
-
     if pred_down == 3 and pred_dist >= 7:
-        st.info("Likely PASS situation")
+        st.info("Likely passing tendency: long-yardage third down.")
     elif pred_down == 1 and pred_dist <= 3:
-        st.info("Likely RUN situation")
+        st.info("Likely run tendency: short-yardage first down.")
+    elif pred_down == 4:
+        st.info("Fourth down can be more volatile because of smaller sample sizes.")
