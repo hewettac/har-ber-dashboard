@@ -8,3 +8,21 @@ trap,Gap Run,Trap
 bubble,Screen,Bubble Screen
 slant,Quick Pass,Slant
 stick,Quick Pass,Stick
+houston,gap run,counter left
+cougar, gap run, counter right
+texas, gap run, pin and pull left
+longhorn, gap run, pin and pull right
+oklahoma, outside run, outside zone left
+sooner, outside run, outside zone right
+akron, inside run, inside zone left
+zip,inside run, inside zone right
+duke, gap run, duo left
+devil, gap run, duo right
+maryland,gap run, trap left
+terp, gap run, trap right
+florida, gap run, g scheme left
+gator, gap run, g scheme right
+wisconsin, gap run, iso left
+badger, gap run, iso right
+nevada, inside run, split zone left
+wolfpack, inside run, split zone right
