@@ -166,6 +166,7 @@ def load_base():
 # -------------------------
 # TRAIN MODEL
 # -------------------------
+@st.cache_resource(show_spinner=False)
 def train_stage_model(df, target, features):
     df = df.copy()
 
@@ -179,7 +180,6 @@ def train_stage_model(df, target, features):
     if df.empty:
         return None, None, None
 
-    # remove rare classes
     counts = df[target].value_counts()
     valid = counts[counts >= 2].index
     df = df[df[target].isin(valid)]
@@ -187,10 +187,11 @@ def train_stage_model(df, target, features):
     if df.empty or df[target].nunique() < 2:
         return None, None, None
 
-    classes = sorted(df[target].unique())
+    classes = sorted(df[target].astype(str).unique())
     class_to_int = {c: i for i, c in enumerate(classes)}
     int_to_class = {i: c for c, i in class_to_int.items()}
 
+    df[target] = df[target].astype(str)
     df["y"] = df[target].map(class_to_int)
 
     X = df[features]
@@ -204,19 +205,20 @@ def train_stage_model(df, target, features):
         return None, None, None
 
     model = XGBClassifier(
-        n_estimators=400,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        eval_metric="mlogloss"
+        n_estimators=100,        # lowered from 400
+        max_depth=4,             # lowered from 6
+        learning_rate=0.08,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        eval_metric="mlogloss",
+        random_state=42,
+        n_jobs=1
     )
 
     model.fit(X_train, y_train)
     acc = accuracy_score(y_test, model.predict(X_test))
 
     return model, int_to_class, acc
-
 
 # -------------------------
 # SIDEBAR UPLOAD
@@ -260,10 +262,25 @@ features = [
 # -------------------------
 # TRAIN MODELS
 # -------------------------
-st1_model, st1_map, st1_acc = train_stage_model(combined, "play_type", features)
-st2_model, st2_map, st2_acc = train_stage_model(combined, "concept_group", features)
-st3_model, st3_map, st3_acc = train_stage_model(combined, "off_play_clean", features)
+st.title("Har-Ber Elite Dashboard")
+st.info("Weekly file uploaded. Training models now...")
 
+with st.spinner("Training models... this may take a moment on first run."):
+    st1_model, st1_map, st1_acc = train_stage_model(combined, "play_type", features)
+    st2_model, st2_map, st2_acc = train_stage_model(combined, "concept_group", features)
+    st3_model, st3_map, st3_acc = train_stage_model(combined, "off_play_clean", features)
+
+st.write("✅ Weekly file uploaded")
+st.write("Weekly rows:", len(df))
+st.write("Weekly columns:", list(df.columns))
+
+st.write("✅ Mapping loaded")
+st.write("Mapping rows:", len(mapping))
+
+st.write("✅ Base file loaded")
+st.write("Base rows:", len(base_df))
+
+st.write("✅ Combined rows:", len(combined))
 # -------------------------
 # HEADER
 # -------------------------
