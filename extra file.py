@@ -17,19 +17,94 @@ st.set_page_config(page_title="Har-Ber Elite Dashboard", layout="wide")
 def load_mapping():
     try:
         mapping = pd.read_csv("off_play_mapping_template.csv")
-        mapping["raw_off_play"] = mapping["raw_off_play"].str.lower().str.strip()
+        mapping.columns = mapping.columns.astype(str).str.lower().str.strip()
+
+        # safety checks
+        expected_cols = ["raw_off_play", "concept_group", "off_play_clean"]
+        for col in expected_cols:
+            if col not in mapping.columns:
+                mapping[col] = ""
+
+        mapping["raw_off_play"] = mapping["raw_off_play"].astype(str).str.lower().str.strip()
+        mapping["concept_group"] = mapping["concept_group"].astype(str).str.strip()
+        mapping["off_play_clean"] = mapping["off_play_clean"].astype(str).str.strip()
+
+        mapping = mapping.drop_duplicates(subset=["raw_off_play"], keep="first")
         return mapping
-    except:
-        return pd.DataFrame(columns=["raw_off_play","concept_group","off_play_clean"])
+
+    except Exception:
+        return pd.DataFrame(columns=["raw_off_play", "concept_group", "off_play_clean"])
+
+
+# -------------------------
+# STANDARDIZE COLUMNS
+# -------------------------
+def standardize_columns(df):
+    df = df.copy()
+
+    # normalize raw headers
+    df.columns = df.columns.astype(str).str.lower().str.strip()
+
+    # remove duplicate raw columns before mapping
+    df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+    alias_map = {
+        "down": ["down", "dn"],
+        "distance": ["distance", "dist", "togo", "yards to go", "ydstogo"],
+        "hash": ["hash"],
+        "yardline": ["yardline", "yard ln", "spot", "ball on"],
+        "play_type": ["play_type", "play type", "playtype", "type"],
+        "result": ["result"],
+        "gain_loss": ["gain_loss", "gn/ls"],
+        "formation": ["formation", "off form"],
+        "off play": ["off play", "concept"],
+        "off_str": ["off_str", "off str"],
+        "play_direction": ["play_direction", "play dir"],
+        "gap": ["gap"],
+        "pass_zone": ["pass_zone", "pass zone"],
+        "def_front": ["def_front", "def front"],
+        "coverage": ["coverage"],
+        "blitz": ["blitz"],
+        "quarter": ["quarter", "qtr"]
+    }
+
+    rename_dict = {}
+    for standard_name, aliases in alias_map.items():
+        for alias in aliases:
+            if alias in df.columns:
+                rename_dict[alias] = standard_name
+                break
+
+    df = df.rename(columns=rename_dict)
+
+    # if multiple raw aliases collapse into one standardized name, keep first
+    df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+    return df
+
 
 # -------------------------
 # APPLY MAPPING
 # -------------------------
 def apply_mapping(df, mapping):
     df = df.copy()
+
+    # ensure unique columns
+    df.columns = df.columns.astype(str).str.lower().str.strip()
+    df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+    # make sure off play exists
+    if "off play" not in df.columns:
+        df["off play"] = "unknown"
+
     df["off play"] = df["off play"].astype(str).str.lower().str.strip()
 
-    mapping_dict = mapping.set_index("raw_off_play").to_dict("index")
+    if mapping.empty or "raw_off_play" not in mapping.columns:
+        df["concept_group"] = "Unknown"
+        df["off_play_clean"] = df["off play"]
+        return df
+
+    mapping_dict = mapping.set_index("raw_off_play")[["concept_group", "off_play_clean"]].to_dict("index")
 
     def map_row(x):
         if x in mapping_dict:
@@ -42,23 +117,41 @@ def apply_mapping(df, mapping):
 
     return df
 
+
 # -------------------------
 # FEATURE ENGINEERING
 # -------------------------
 def add_features(df):
     df = df.copy()
 
+    if "distance" not in df.columns:
+        df["distance"] = np.nan
+    if "yardline" not in df.columns:
+        df["yardline"] = np.nan
+    if "down" not in df.columns:
+        df["down"] = np.nan
+
     df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
     df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
     df["down"] = pd.to_numeric(df["down"], errors="coerce")
 
-    df["distance_bucket"] = pd.cut(df["distance"], [-1,3,7,100], labels=[0,1,2]).astype(float)
-    df["field_zone"] = pd.cut(df["yardline"], [-51,-20,20,51], labels=[0,1,2]).astype(float)
+    df["distance_bucket"] = pd.cut(
+        df["distance"],
+        bins=[-1, 3, 7, 100],
+        labels=[0, 1, 2]
+    ).astype(float)
+
+    df["field_zone"] = pd.cut(
+        df["yardline"],
+        bins=[-51, -20, 20, 51],
+        labels=[0, 1, 2]
+    ).astype(float)
 
     df["short_yardage"] = (df["distance"] <= 3).astype(int)
-    df["passing_down"] = ((df["down"]>=3) & (df["distance"]>=6)).astype(int)
+    df["passing_down"] = ((df["down"] >= 3) & (df["distance"] >= 6)).astype(int)
 
     return df
+
 
 # -------------------------
 # LOAD BASE DATA
@@ -66,36 +159,49 @@ def add_features(df):
 @st.cache_data
 def load_base():
     base = pd.read_csv("AllPlaysTrainData.csv")
-    base.columns = base.columns.str.lower().str.strip()
+    base = standardize_columns(base)
     return base
+
 
 # -------------------------
 # TRAIN MODEL
 # -------------------------
 def train_stage_model(df, target, features):
+    df = df.copy()
 
-    df = df.dropna(subset=features+[target])
+    required_cols = features + [target]
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        return None, None, None
+
+    df = df.dropna(subset=required_cols)
+
+    if df.empty:
+        return None, None, None
 
     # remove rare classes
     counts = df[target].value_counts()
-    valid = counts[counts>=2].index
+    valid = counts[counts >= 2].index
     df = df[df[target].isin(valid)]
 
-    if df[target].nunique() < 2:
-        return None, None
+    if df.empty or df[target].nunique() < 2:
+        return None, None, None
 
     classes = sorted(df[target].unique())
-    mapping = {c:i for i,c in enumerate(classes)}
-    inv_map = {i:c for c,i in mapping.items()}
+    class_to_int = {c: i for i, c in enumerate(classes)}
+    int_to_class = {i: c for c, i in class_to_int.items()}
 
-    df["y"] = df[target].map(mapping)
+    df["y"] = df[target].map(class_to_int)
 
     X = df[features]
     y = df["y"]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,y,test_size=0.2,random_state=42,stratify=y
-    )
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+    except ValueError:
+        return None, None, None
 
     model = XGBClassifier(
         n_estimators=400,
@@ -106,11 +212,11 @@ def train_stage_model(df, target, features):
         eval_metric="mlogloss"
     )
 
-    model.fit(X_train,y_train)
-
+    model.fit(X_train, y_train)
     acc = accuracy_score(y_test, model.predict(X_test))
 
-    return model, inv_map, acc
+    return model, int_to_class, acc
+
 
 # -------------------------
 # SIDEBAR UPLOAD
@@ -121,29 +227,12 @@ if not uploaded:
     st.stop()
 
 df = pd.read_excel(uploaded)
-df.columns = df.columns.str.lower().str.strip()
+df = standardize_columns(df)
 
-# rename key columns
-rename_map = {
-    "down": ["down", "dn"],
-    "distance": ["distance", "dist", "togo", "yards to go", "ydstogo"],
-    "hash": ["hash"],
-    "yardline": ["yardline", "yard ln", "spot", "ball on"],
-    "play_type": ["play_type", "play type", "playtype", "type"],
-    "result": ["result"],
-    "gain_loss": ["gain_loss", "gn/ls"],
-    "formation": ["formation", "off form"],
-    "concept": ["concept", "off play"],
-    "off_str": ["off str"],
-    "play_direction": ["play_direction", "play dir"],
-    "gap": ["gap"],
-    "pass_zone": ["pass zone"],
-    "def_front": ["def front"],
-    "coverage": ["coverage"],
-    "blitz": ["blitz"],
-    "quarter": ["quarter", "qtr"]
-}
-df = df.rename(columns=rename_map)
+# optional debug section
+with st.sidebar.expander("Debug Uploaded Columns", expanded=False):
+    st.write("Columns:", list(df.columns))
+    st.write("Duplicate columns:", df.columns[df.columns.duplicated()].tolist())
 
 mapping = load_mapping()
 df = apply_mapping(df, mapping)
@@ -163,36 +252,49 @@ combined = pd.concat([base_df, df], ignore_index=True)
 # FEATURES
 # -------------------------
 features = [
-    "down","distance","yardline",
-    "distance_bucket","field_zone",
-    "short_yardage","passing_down"
+    "down", "distance", "yardline",
+    "distance_bucket", "field_zone",
+    "short_yardage", "passing_down"
 ]
 
 # -------------------------
 # TRAIN MODELS
 # -------------------------
-st1_model, st1_map, st1_acc = train_stage_model(combined,"play_type",features)
-st2_model, st2_map, st2_acc = train_stage_model(combined,"concept_group",features)
-st3_model, st3_map, st3_acc = train_stage_model(combined,"off_play_clean",features)
+st1_model, st1_map, st1_acc = train_stage_model(combined, "play_type", features)
+st2_model, st2_map, st2_acc = train_stage_model(combined, "concept_group", features)
+st3_model, st3_map, st3_acc = train_stage_model(combined, "off_play_clean", features)
+
+# -------------------------
+# HEADER
+# -------------------------
+st.title("Har-Ber Elite Dashboard")
+
+acc_c1, acc_c2, acc_c3 = st.columns(3)
+with acc_c1:
+    st.metric("Stage 1 Accuracy", f"{st1_acc:.1%}" if st1_acc is not None else "N/A")
+with acc_c2:
+    st.metric("Stage 2 Accuracy", f"{st2_acc:.1%}" if st2_acc is not None else "N/A")
+with acc_c3:
+    st.metric("Stage 3 Accuracy", f"{st3_acc:.1%}" if st3_acc is not None else "N/A")
 
 # -------------------------
 # INPUT
 # -------------------------
 st.markdown("## 🎯 Predict Next Play")
 
-c1,c2,c3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
 with c1:
-    down = st.selectbox("Down",[1,2,3,4])
+    down = st.selectbox("Down", [1, 2, 3, 4])
 with c2:
-    distance = st.number_input("Distance",1,30,5)
+    distance = st.number_input("Distance", min_value=1, max_value=30, value=5)
 with c3:
-    yardline = st.slider("Yardline",-50,50,0)
+    yardline = st.slider("Yardline", min_value=-50, max_value=50, value=0)
 
 input_df = pd.DataFrame([{
-    "down":down,
-    "distance":distance,
-    "yardline":yardline
+    "down": down,
+    "distance": distance,
+    "yardline": yardline
 }])
 
 input_df = add_features(input_df)
@@ -200,17 +302,16 @@ input_df = add_features(input_df)
 # -------------------------
 # PREDICTIONS
 # -------------------------
-if st1_model:
-
+if st1_model is not None:
     p1 = st1_model.predict_proba(input_df[features])[0]
-    run_idx = np.argmax(p1)
-    run_prob = p1[run_idx]
-    run_label = st1_map[run_idx]
+    idx1 = np.argmax(p1)
+    run_prob = p1[idx1]
+    run_label = st1_map[idx1]
 
     st.markdown("### Stage 1")
     st.write(f"{run_label}: {run_prob:.1%}")
 
-    if st2_model:
+    if st2_model is not None:
         p2 = st2_model.predict_proba(input_df[features])[0]
         idx2 = np.argmax(p2)
         group = st2_map[idx2]
@@ -219,7 +320,7 @@ if st1_model:
         st.markdown("### Stage 2")
         st.write(f"{group} given {run_label}: {prob2:.1%}")
 
-        if st3_model:
+        if st3_model is not None:
             p3 = st3_model.predict_proba(input_df[features])[0]
             idx3 = np.argmax(p3)
             concept = st3_map[idx3]
@@ -232,6 +333,8 @@ if st1_model:
 
             st.markdown("### 🔥 Final Prediction")
             st.write(f"{concept} overall: {overall:.1%}")
+else:
+    st.warning("Not enough clean data to train Stage 1 model.")
 
 # -------------------------
 # LIVE LOGGING
@@ -243,20 +346,37 @@ if "game_log" not in st.session_state:
 
 log_c1, log_c2 = st.columns(2)
 
+play_type_options = (
+    sorted(df["play_type"].dropna().astype(str).unique().tolist())
+    if "play_type" in df.columns else []
+)
+
+concept_options = (
+    sorted(df["off_play_clean"].dropna().astype(str).unique().tolist())
+    if "off_play_clean" in df.columns else []
+)
+
 with log_c1:
-    actual_type = st.selectbox("Actual Play Type", df["play_type"].dropna().unique())
+    actual_type = st.selectbox(
+        "Actual Play Type",
+        play_type_options if play_type_options else ["Unknown"]
+    )
 
 with log_c2:
-    actual_concept = st.selectbox("Actual Concept", df["off_play_clean"].dropna().unique())
+    actual_concept = st.selectbox(
+        "Actual Concept",
+        concept_options if concept_options else ["Unknown"]
+    )
 
 if st.button("Log Play"):
     new_row = {
-        "down":down,
-        "distance":distance,
-        "yardline":yardline,
-        "play_type":actual_type,
-        "off_play_clean":actual_concept
+        "down": down,
+        "distance": distance,
+        "yardline": yardline,
+        "play_type": actual_type,
+        "off_play_clean": actual_concept
     }
+
     st.session_state.game_log = pd.concat(
         [st.session_state.game_log, pd.DataFrame([new_row])],
         ignore_index=True
@@ -270,10 +390,13 @@ if not st.session_state.game_log.empty:
 
     log = st.session_state.game_log
 
-    run_rate = (log["play_type"]=="Run").mean()
-    pass_rate = (log["play_type"]=="Pass").mean()
+    run_rate = (log["play_type"].astype(str).str.lower() == "run").mean()
+    pass_rate = (log["play_type"].astype(str).str.lower() == "pass").mean()
 
-    st.write(f"Run Rate: {run_rate:.1%}")
-    st.write(f"Pass Rate: {pass_rate:.1%}")
+    t1, t2 = st.columns(2)
+    with t1:
+        st.metric("Run Rate", f"{run_rate:.1%}")
+    with t2:
+        st.metric("Pass Rate", f"{pass_rate:.1%}")
 
-    st.dataframe(log)
+    st.dataframe(log, use_container_width=True)
