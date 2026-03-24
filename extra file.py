@@ -125,11 +125,23 @@ df.columns = df.columns.str.lower().str.strip()
 
 # rename key columns
 rename_map = {
-    "dn":"down",
-    "dist":"distance",
-    "yard ln":"yardline",
-    "play type":"play_type",
-    "off play":"off play"
+    "down": ["down", "dn"],
+    "distance": ["distance", "dist", "togo", "yards to go", "ydstogo"],
+    "hash": ["hash"],
+    "yardline": ["yardline", "yard ln", "spot", "ball on"],
+    "play_type": ["play_type", "play type", "playtype", "type"],
+    "result": ["result"],
+    "gain_loss": ["gain_loss", "gn/ls"],
+    "formation": ["formation", "off form"],
+    "concept": ["concept", "off play"],
+    "off_str": ["off str"],
+    "play_direction": ["play_direction", "play dir"],
+    "gap": ["gap"],
+    "pass_zone": ["pass zone"],
+    "def_front": ["def front"],
+    "coverage": ["coverage"],
+    "blitz": ["blitz"],
+    "quarter": ["quarter", "qtr"]
 }
 df = df.rename(columns=rename_map)
 
