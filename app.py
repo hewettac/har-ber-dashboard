@@ -650,6 +650,7 @@ def render_basic_dashboard(uploaded_file):
                 names="play_type",
                 values="count",
                 title="Play Type %",
+                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"],
                 template="plotly_dark"
             )
             r2c1.plotly_chart(themed_chart(play_type_fig_all), use_container_width=True, theme=None)
@@ -753,7 +754,7 @@ def render_basic_dashboard(uploaded_file):
                 names="play_type",
                 values="count",
                 title="Play Type %",
-                color_discrete_sequence=px.colors.sequential.Blues,
+                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"],
                 template="plotly_dark"
             )
             r2c1.plotly_chart(themed_chart(play_type_fig), use_container_width=True, theme=None)
