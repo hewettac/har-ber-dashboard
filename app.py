@@ -768,7 +768,7 @@ def render_basic_dashboard(uploaded_file):
                 names="concept",
                 values="count",
                 title="Most Frequent Concepts",
-                color_discrete_sequence=px.colors.sequential.Blues,
+                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"],
                 template="plotly_dark"
             )
             r2c2.plotly_chart(themed_chart(concept_pie_fig), use_container_width=True, theme=None)
