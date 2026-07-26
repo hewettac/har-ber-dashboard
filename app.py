@@ -1,4 +1,5 @@
 import streamlit as st
+import plotly.io as pio
 from io import BytesIO
 
 
@@ -6,6 +7,31 @@ st.set_page_config(
     page_title="Har-Ber Football Analytics",
     page_icon="🏈",
     layout="wide",
+)
+
+# Apply one chart theme to every Plotly figure in both dashboards. Updating the
+# dark template also covers figures that explicitly use template="plotly_dark".
+pio.templates.default = "plotly_dark"
+pio.templates["plotly_dark"].layout.update(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font={"color": "#f5fbff"},
+    title={"font": {"color": "#7FDBFF"}},
+    legend={
+        "bgcolor": "rgba(10,35,66,0.72)",
+        "bordercolor": "rgba(127,219,255,0.28)",
+        "borderwidth": 1,
+    },
+    xaxis={
+        "gridcolor": "rgba(127,219,255,0.12)",
+        "linecolor": "rgba(127,219,255,0.28)",
+        "zerolinecolor": "rgba(127,219,255,0.22)",
+    },
+    yaxis={
+        "gridcolor": "rgba(127,219,255,0.12)",
+        "linecolor": "rgba(127,219,255,0.28)",
+        "zerolinecolor": "rgba(127,219,255,0.22)",
+    },
 )
 
 st.markdown(
