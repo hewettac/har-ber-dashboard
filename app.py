@@ -8,6 +8,96 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+    <style>
+    :root {
+        --hb-bg: #07182d;
+        --hb-panel: rgba(10, 35, 66, 0.92);
+        --hb-panel-soft: rgba(12, 43, 79, 0.72);
+        --hb-accent: #7FDBFF;
+        --hb-accent-hover: #a8e7ff;
+        --hb-text: #f5fbff;
+        --hb-muted: #b8cfdf;
+        --hb-border: rgba(127, 219, 255, 0.28);
+    }
+    html, body, [class*="css"] { color: var(--hb-text); }
+    [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(circle at top right, rgba(127, 219, 255, 0.14), transparent 35%),
+            radial-gradient(circle at bottom left, rgba(10, 67, 112, 0.28), transparent 38%),
+            var(--hb-bg);
+        color: var(--hb-text);
+    }
+    [data-testid="stHeader"] { background: transparent; }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #061426 0%, #0a2342 100%);
+        border-right: 1px solid var(--hb-border);
+    }
+    [data-testid="stSidebar"] * { color: var(--hb-text); }
+    h1, h2, h3, h4 { color: var(--hb-accent) !important; }
+    p, label, [data-testid="stCaptionContainer"] { color: var(--hb-text); }
+    hr { border-color: var(--hb-border) !important; }
+    div.stButton > button,
+    div.stDownloadButton > button {
+        background: var(--hb-accent);
+        border: 1px solid transparent;
+        border-radius: 10px;
+        color: var(--hb-bg) !important;
+        font-weight: 750;
+        min-height: 2.8rem;
+        transition: all 0.15s ease;
+    }
+    div.stButton > button:hover,
+    div.stDownloadButton > button:hover {
+        background: var(--hb-accent-hover);
+        border-color: white;
+        color: var(--hb-bg) !important;
+        transform: translateY(-1px);
+    }
+    [data-testid="stFileUploaderDropzone"],
+    [data-baseweb="select"] > div,
+    [data-baseweb="input"] > div,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stTextInput"] input {
+        background: var(--hb-panel-soft) !important;
+        border-color: var(--hb-border) !important;
+        color: var(--hb-text) !important;
+        border-radius: 10px;
+    }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: var(--hb-accent);
+        color: var(--hb-bg);
+        border: 0;
+    }
+    [data-baseweb="tab-list"] {
+        gap: 0.3rem;
+        border-bottom: 1px solid var(--hb-border);
+    }
+    [data-baseweb="tab"] {
+        background: rgba(10, 35, 66, 0.55);
+        border-radius: 9px 9px 0 0;
+        color: var(--hb-muted);
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    [data-baseweb="tab"][aria-selected="true"] {
+        background: var(--hb-panel);
+        color: var(--hb-accent);
+    }
+    [data-baseweb="tab-highlight"] { background-color: var(--hb-accent); }
+    [data-testid="stDataFrame"],
+    [data-testid="stMetric"],
+    [data-testid="stAlert"] {
+        border: 1px solid var(--hb-border);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def go_to(page_name):
     st.session_state.active_page = page_name
@@ -137,12 +227,13 @@ def render_basic_dashboard(uploaded_file):
     st.markdown("""
     <style>
     .metric-card {
-        background-color: #0A2342;
-        padding: 10px 15px;
-        border-radius: 8px;
+        background: rgba(10, 35, 66, 0.92);
+        border: 1px solid rgba(127, 219, 255, 0.28);
+        padding: 14px 16px;
+        border-radius: 14px;
         text-align: center;
         color: white;
-        box-shadow: 0px 3px 8px rgba(0,0,0,0.4);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.25);
         transition: transform 0.15s;
         margin-bottom: 8px;
     }
@@ -157,14 +248,18 @@ def render_basic_dashboard(uploaded_file):
     }
     .metric-label {
         font-size: 12px;
-        color: #AAAAAA;
+        color: #b8cfdf;
         font-weight: 500;
     }
     .section-header {
         font-size: 24px;
         font-weight: 700;
         color: #7FDBFF;
-        margin: 8px 0 12px 0;
+        background: rgba(10, 35, 66, 0.76);
+        border: 1px solid rgba(127, 219, 255, 0.24);
+        border-radius: 12px;
+        padding: 12px 15px;
+        margin: 10px 0 14px 0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -1013,14 +1108,29 @@ def render_advanced_analytics(uploaded_file):
     # -------------------------
     st.markdown("""
     <style>
-    body, .main { background-color: #0d0d0d !important; color: #FFFFFF; }
-    .css-1d391kg { background-color: #111111 !important; }
     h1, h2, h3 { color: #7FDBFF; }
-    .section-header { background-color: #0A2342; padding: 10px; border-radius: 5px; color: #FFFFFF; font-weight: bold; margin-top:20px; }
-    .metric-card { background-color: #1A1A1A; padding: 15px; border-radius: 10px; text-align:center; color:white; box-shadow:0px 4px 12px rgba(0,0,0,0.4); transition: transform 0.2s; }
+    .section-header {
+        background: rgba(10, 35, 66, 0.76);
+        border: 1px solid rgba(127, 219, 255, 0.24);
+        padding: 12px 15px;
+        border-radius: 12px;
+        color: #7FDBFF;
+        font-weight: bold;
+        margin-top: 20px;
+    }
+    .metric-card {
+        background: rgba(10, 35, 66, 0.92);
+        border: 1px solid rgba(127, 219, 255, 0.28);
+        padding: 15px;
+        border-radius: 14px;
+        text-align:center;
+        color:white;
+        box-shadow:0 10px 28px rgba(0,0,0,0.25);
+        transition: transform 0.2s;
+    }
     .metric-card:hover { transform: scale(1.05); }
     .metric-number { font-size:24px; font-weight:bold; color:#7FDBFF; }
-    .metric-label { font-size:12px; color:#AAAAAA; }
+    .metric-label { font-size:12px; color:#b8cfdf; }
     </style>
     """, unsafe_allow_html=True)
     
