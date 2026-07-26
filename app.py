@@ -121,6 +121,27 @@ st.markdown(
         color: var(--hb-bg);
         border: 0;
     }
+    [data-testid="stFileUploaderFile"] {
+        background: rgba(7, 24, 45, 0.94) !important;
+        border: 1px solid var(--hb-border) !important;
+        border-radius: 10px !important;
+        color: var(--hb-text) !important;
+    }
+    [data-testid="stFileUploaderFile"] *,
+    [data-testid="stFileUploaderFileName"],
+    [data-testid="stFileUploaderFile"] small {
+        color: var(--hb-text) !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stFileUploaderFile"] button {
+        background: transparent !important;
+        border: 0 !important;
+        color: var(--hb-accent) !important;
+    }
+    [data-testid="stFileUploaderFile"] button svg {
+        fill: var(--hb-accent) !important;
+        stroke: var(--hb-accent) !important;
+    }
     [data-baseweb="tab-list"] {
         gap: 0.3rem;
         border-bottom: 1px solid var(--hb-border);
@@ -650,7 +671,6 @@ def render_basic_dashboard(uploaded_file):
                 names="play_type",
                 values="count",
                 title="Play Type %",
-                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"],
                 template="plotly_dark"
             )
             r2c1.plotly_chart(themed_chart(play_type_fig_all), use_container_width=True, theme=None)
@@ -754,7 +774,6 @@ def render_basic_dashboard(uploaded_file):
                 names="play_type",
                 values="count",
                 title="Play Type %",
-                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"],
                 template="plotly_dark"
             )
             r2c1.plotly_chart(themed_chart(play_type_fig), use_container_width=True, theme=None)
