@@ -34,6 +34,31 @@ pio.templates["plotly_dark"].layout.update(
     },
 )
 
+
+def themed_chart(figure):
+    """Force the Har-Ber theme onto a figure immediately before rendering."""
+    figure.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#f5fbff",
+        title_font_color="#7FDBFF",
+        legend_bgcolor="rgba(10,35,66,0.72)",
+        legend_bordercolor="rgba(127,219,255,0.28)",
+        legend_borderwidth=1,
+    )
+    figure.update_xaxes(
+        gridcolor="rgba(127,219,255,0.12)",
+        linecolor="rgba(127,219,255,0.28)",
+        zerolinecolor="rgba(127,219,255,0.22)",
+    )
+    figure.update_yaxes(
+        gridcolor="rgba(127,219,255,0.12)",
+        linecolor="rgba(127,219,255,0.28)",
+        zerolinecolor="rgba(127,219,255,0.22)",
+    )
+    return figure
+
 st.markdown(
     """
     <style>
@@ -608,9 +633,9 @@ def render_basic_dashboard(uploaded_file):
     
         r1c1, r1c2 = st.columns(2)
         if gain_fig_all is not None:
-            r1c1.plotly_chart(gain_fig_all, use_container_width=True)
+            r1c1.plotly_chart(themed_chart(gain_fig_all), use_container_width=True, theme=None)
         if concept_fig_all is not None:
-            r1c2.plotly_chart(concept_fig_all, use_container_width=True)
+            r1c2.plotly_chart(themed_chart(concept_fig_all), use_container_width=True, theme=None)
     
         st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
     
@@ -627,7 +652,7 @@ def render_basic_dashboard(uploaded_file):
                 title="Play Type %",
                 template="plotly_dark"
             )
-            r2c1.plotly_chart(play_type_fig_all, use_container_width=True)
+            r2c1.plotly_chart(themed_chart(play_type_fig_all), use_container_width=True, theme=None)
     
         if "concept" in df.columns:
             concept_summary_all = df["concept"].value_counts().head(6).reset_index()
@@ -641,7 +666,7 @@ def render_basic_dashboard(uploaded_file):
                 color_discrete_sequence=px.colors.sequential.Blues,
                 template="plotly_dark"
             )
-            r2c2.plotly_chart(concept_pie_fig_all, use_container_width=True)
+            r2c2.plotly_chart(themed_chart(concept_pie_fig_all), use_container_width=True, theme=None)
     
     # -------------------------
     # Tab 2 - Filtered Snapshot
@@ -711,9 +736,9 @@ def render_basic_dashboard(uploaded_file):
     
         r1c1, r1c2 = st.columns(2)
         if gain_fig is not None:
-            r1c1.plotly_chart(gain_fig, use_container_width=True)
+            r1c1.plotly_chart(themed_chart(gain_fig), use_container_width=True, theme=None)
         if concept_fig is not None:
-            r1c2.plotly_chart(concept_fig, use_container_width=True)
+            r1c2.plotly_chart(themed_chart(concept_fig), use_container_width=True, theme=None)
     
         st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
     
@@ -730,7 +755,7 @@ def render_basic_dashboard(uploaded_file):
                 title="Play Type %",
                 template="plotly_dark"
             )
-            r2c1.plotly_chart(play_type_fig, use_container_width=True)
+            r2c1.plotly_chart(themed_chart(play_type_fig), use_container_width=True, theme=None)
     
         if "concept" in selected.columns:
             concept_summary = selected["concept"].value_counts().head(6).reset_index()
@@ -744,7 +769,7 @@ def render_basic_dashboard(uploaded_file):
                 color_discrete_sequence=px.colors.sequential.Blues,
                 template="plotly_dark"
             )
-            r2c2.plotly_chart(concept_pie_fig, use_container_width=True)
+            r2c2.plotly_chart(themed_chart(concept_pie_fig), use_container_width=True, theme=None)
     
         st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
         st.dataframe(selected, use_container_width=True)
@@ -800,7 +825,7 @@ def render_basic_dashboard(uploaded_file):
                     customdata=plays_pivot.values
                 )
     
-                st.plotly_chart(heatmap_fig, use_container_width=True)
+                st.plotly_chart(themed_chart(heatmap_fig), use_container_width=True, theme=None)
             else:
                 st.info("Not enough data to display heatmap.")
     
@@ -843,7 +868,7 @@ def render_basic_dashboard(uploaded_file):
                 template="plotly_dark"
             )
     
-            st.plotly_chart(bubble, use_container_width=True)
+            st.plotly_chart(themed_chart(bubble), use_container_width=True, theme=None)
             st.dataframe(concept_stats, use_container_width=True)
     
     # -------------------------
@@ -1277,10 +1302,10 @@ def render_advanced_analytics(uploaded_file):
         
             st.markdown("### Explosive Plays")
             c1, c2 = st.columns(2)
-            with c1: st.plotly_chart(plot_heatmap_hover(run_df, 'explosive', 'Run Explosive %'), use_container_width=True)
-            with c2: st.plotly_chart(plot_heatmap_hover(pass_df, 'explosive', 'Pass Explosive %'), use_container_width=True)
+            with c1: st.plotly_chart(themed_chart(plot_heatmap_hover(run_df, 'explosive', 'Run Explosive %')), use_container_width=True, theme=None)
+            with c2: st.plotly_chart(themed_chart(plot_heatmap_hover(pass_df, 'explosive', 'Pass Explosive %')), use_container_width=True, theme=None)
             st.markdown("### Success Rate")
-            st.plotly_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %'), use_container_width=True)
+            st.plotly_chart(themed_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %')), use_container_width=True, theme=None)
     
         # -------------------------
         # TAB 2: Gain/Loss Breakdown
@@ -1295,7 +1320,7 @@ def render_advanced_analytics(uploaded_file):
                 fig_heat = px.imshow(pivot_gain, text_auto=".1f", color_continuous_scale='Blues', labels={'x':'Yard Group','y':'Down','color':'Avg Gain'}, template='plotly_dark', title="Average Gain / Loss by Down & Yard Group")
                 fig_heat.update_traces(hovertemplate="<b>Down:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f} yards<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=customdata_array)
                 fig_heat.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-                st.plotly_chart(fig_heat, use_container_width=True)
+                st.plotly_chart(themed_chart(fig_heat), use_container_width=True, theme=None)
     
         # -------------------------
         # TAB 3: Concept by Yardline
@@ -1326,7 +1351,7 @@ def render_advanced_analytics(uploaded_file):
     
                     fig_concept = px.imshow(pivot_concept, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Field Zone', 'y': 'Play Concept', 'color': metric_to_show}, title=f"{metric_to_show} by Concept and Yardline")
                     fig_concept.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Value:</b> %{z}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_plays.values], axis=-1))
-                    st.plotly_chart(fig_concept, use_container_width=True)
+                    st.plotly_chart(themed_chart(fig_concept), use_container_width=True, theme=None)
     
                 if 'concept' in df.columns:
                     summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
@@ -1351,7 +1376,7 @@ def render_advanced_analytics(uploaded_file):
     
                 fig_form = px.imshow(pivot_form, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Down', 'y': 'Formation', 'color': 'Avg Gain'}, title="Average Gain by Formation and Down")
                 fig_form.update_traces(hovertemplate="<b>Formation:</b> %{y}<br><b>Down:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f}y<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_form_plays.values], axis=-1))
-                st.plotly_chart(fig_form, use_container_width=True)
+                st.plotly_chart(themed_chart(fig_form), use_container_width=True, theme=None)
     
                 if 'formation' in df.columns:
                     summary = df.groupby('formation').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
@@ -1374,12 +1399,12 @@ def render_advanced_analytics(uploaded_file):
                 summary_success = summary.sort_values('success_pct')
                 fig = px.bar(summary_success, x='success_pct', y='concept', orientation='h', template='plotly_dark', title="Concept Success Rate", labels={'success_pct':'Success %'}, color='success_pct', color_continuous_scale='Blues')
                 fig.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Success %:</b> %{x:.1%}<br><b>Plays:</b> %{customdata[0]}<br><b>Avg Gain:</b> %{customdata[1]:.1f}y<extra></extra>", customdata=np.stack([summary_success['plays'], summary_success['avg_gain']], axis=-1))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
     
                 summary_explosive = summary.sort_values('explosive_pct')
                 fig2 = px.bar(summary_explosive, x='explosive_pct', y='concept', orientation='h', template='plotly_dark', title="Concept Explosive Play %", labels={'explosive_pct':'Explosive %'}, color='explosive_pct', color_continuous_scale='Blues')
                 fig2.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Explosive %:</b> %{x:.1%}<br><b>Plays:</b> %{customdata[0]}<br><b>Avg Gain:</b> %{customdata[1]:.1f}y<extra></extra>", customdata=np.stack([summary_explosive['plays'], summary_explosive['avg_gain']], axis=-1))
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(themed_chart(fig2), use_container_width=True, theme=None)
 
 
 def clear_shared_upload():
