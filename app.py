@@ -1,4 +1,5 @@
 import streamlit as st
+from io import BytesIO
 
 
 st.set_page_config(
@@ -114,7 +115,7 @@ def render_home():
         )
 
 
-def render_basic_dashboard():
+def render_basic_dashboard(uploaded_file):
     import streamlit as st
     import pandas as pd
     import plotly.express as px
@@ -179,8 +180,6 @@ def render_basic_dashboard():
     # Sidebar Upload
     # -------------------------
     st.sidebar.title("Har-Ber Dashboard")
-    uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx", "xls"])
-    
     # -------------------------
     # Column Mapping
     # -------------------------
@@ -999,7 +998,7 @@ def render_basic_dashboard():
     
 
 
-def render_advanced_analytics():
+def render_advanced_analytics(uploaded_file):
     import streamlit as st
     import pandas as pd
     import numpy as np
@@ -1039,8 +1038,6 @@ def render_advanced_analytics():
     # Sidebar Upload
     # -------------------------
     st.sidebar.title("Har‑Ber Advanced Analytics")
-    uploaded_file = st.sidebar.file_uploader("Upload Hudl Excel File", type=["xlsx", "xls"])
-    
     if uploaded_file:
         df = pd.read_excel(uploaded_file)
         df.columns = df.columns.str.lower().str.strip()
@@ -1249,15 +1246,45 @@ def render_advanced_analytics():
                 st.plotly_chart(fig2, use_container_width=True)
 
 
+def clear_shared_upload():
+    st.session_state.pop("shared_upload_bytes", None)
+    st.session_state.pop("shared_upload_name", None)
+    st.session_state.pop("shared_hudl_uploader", None)
+
+
 page = st.sidebar.radio(
     "Navigation",
     ["Home", "Basic Dashboard", "Advanced Analytics"],
     key="active_page",
 )
 
+st.sidebar.divider()
+st.sidebar.subheader("Shared Hudl File")
+
+new_upload = st.sidebar.file_uploader(
+    "Upload Hudl Excel File",
+    type=["xlsx", "xls"],
+    key="shared_hudl_uploader",
+)
+
+if new_upload is not None:
+    st.session_state.shared_upload_bytes = new_upload.getvalue()
+    st.session_state.shared_upload_name = new_upload.name
+
+uploaded_file = None
+if st.session_state.get("shared_upload_bytes"):
+    uploaded_file = BytesIO(st.session_state.shared_upload_bytes)
+    uploaded_file.name = st.session_state.get("shared_upload_name", "hudl_data.xlsx")
+    st.sidebar.success(f"Using: {uploaded_file.name}")
+    st.sidebar.button(
+        "Clear uploaded file",
+        on_click=clear_shared_upload,
+        use_container_width=True,
+    )
+
 if page == "Basic Dashboard":
-    render_basic_dashboard()
+    render_basic_dashboard(uploaded_file)
 elif page == "Advanced Analytics":
-    render_advanced_analytics()
+    render_advanced_analytics(uploaded_file)
 else:
     render_home()
