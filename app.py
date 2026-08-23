@@ -1566,17 +1566,22 @@ def render_play_breakdown(uploaded_file):
     else:
         st.info("RPO-tagged plays are currently shown separately.")
 
+    if "custom_breakdown_groups" not in st.session_state:
+        st.session_state.custom_breakdown_groups = []
+    if "custom_breakdown_group_id" not in st.session_state:
+        st.session_state.custom_breakdown_group_id = 1
+
     with st.expander("Custom Grouping", expanded=False):
         st.caption(
-            "Temporarily combine selected plays or formations. Turn the group "
-            "off at any time to restore the original separate values."
+            "Create multiple temporary groups. Each group can be turned on or "
+            "off independently, and your uploaded file is never changed."
         )
 
         grouping_type = st.radio(
             "What do you want to combine?",
             ["Plays", "Formations"],
             horizontal=True,
-            key="custom_grouping_type",
+            key="new_custom_grouping_type",
         )
         grouping_column = "concept" if grouping_type == "Plays" else "formation"
         grouping_options = sorted(df[grouping_column].dropna().unique().tolist())
@@ -1584,34 +1589,104 @@ def render_play_breakdown(uploaded_file):
         selected_group_items = st.multiselect(
             f"Select {grouping_type.lower()} to combine",
             grouping_options,
-            key=f"custom_{grouping_column}_items",
+            key=f"new_custom_{grouping_column}_items",
             help="Select at least two items.",
         )
         custom_group_name = st.text_input(
             "Combined group name",
-            value="Combined Group",
-            key=f"custom_{grouping_column}_name",
+            value="",
+            placeholder="Example: Counter Family",
+            key=f"new_custom_{grouping_column}_name",
         ).strip()
-        apply_custom_group = st.toggle(
-            "Apply custom group",
-            value=False,
-            key=f"apply_custom_{grouping_column}_group",
-        )
 
-    if apply_custom_group:
-        if len(selected_group_items) < 2:
-            st.warning("Select at least two items before applying a custom group.")
-        elif not custom_group_name:
-            st.warning("Enter a name for the combined group.")
+        if st.button("Add custom group", use_container_width=True):
+            if len(selected_group_items) < 2:
+                st.warning("Select at least two items before adding the group.")
+            elif not custom_group_name:
+                st.warning("Enter a name for the combined group.")
+            else:
+                used_items = {
+                    item
+                    for group in st.session_state.custom_breakdown_groups
+                    if group["column"] == grouping_column
+                    for item in group["items"]
+                }
+                overlaps = sorted(set(selected_group_items) & used_items)
+
+                if overlaps:
+                    st.warning(
+                        "These items are already assigned to another custom group: "
+                        + ", ".join(overlaps)
+                        + ". Remove that group before reassigning them."
+                    )
+                else:
+                    group_id = st.session_state.custom_breakdown_group_id
+                    st.session_state.custom_breakdown_groups.append({
+                        "id": group_id,
+                        "type": grouping_type,
+                        "column": grouping_column,
+                        "name": custom_group_name,
+                        "items": list(selected_group_items),
+                        "enabled": True,
+                    })
+                    st.session_state.custom_breakdown_group_id += 1
+                    st.rerun()
+
+        st.divider()
+        st.markdown("#### Saved custom groups")
+
+        if not st.session_state.custom_breakdown_groups:
+            st.info("No custom groups have been added yet.")
         else:
+            for group in list(st.session_state.custom_breakdown_groups):
+                enabled_col, details_col, remove_col = st.columns([1, 4, 1])
+                with enabled_col:
+                    st.toggle(
+                        "On",
+                        value=group.get("enabled", True),
+                        key=f"custom_group_enabled_{group['id']}",
+                        label_visibility="collapsed",
+                    )
+                with details_col:
+                    st.markdown(f"**{group['name']}** · {group['type']}")
+                    st.caption(" + ".join(group["items"]))
+                with remove_col:
+                    if st.button("Remove", key=f"remove_custom_group_{group['id']}"):
+                        st.session_state.custom_breakdown_groups = [
+                            saved_group
+                            for saved_group in st.session_state.custom_breakdown_groups
+                            if saved_group["id"] != group["id"]
+                        ]
+                        st.session_state.pop(
+                            f"custom_group_enabled_{group['id']}",
+                            None,
+                        )
+                        st.rerun()
+
+            if st.button("Clear all custom groups", use_container_width=True):
+                for group in st.session_state.custom_breakdown_groups:
+                    st.session_state.pop(
+                        f"custom_group_enabled_{group['id']}",
+                        None,
+                    )
+                st.session_state.custom_breakdown_groups = []
+                st.rerun()
+
+    active_group_names = []
+    for group in st.session_state.custom_breakdown_groups:
+        is_enabled = st.session_state.get(
+            f"custom_group_enabled_{group['id']}",
+            group.get("enabled", True),
+        )
+        if is_enabled:
             df.loc[
-                df[grouping_column].isin(selected_group_items),
-                grouping_column,
-            ] = custom_group_name
-            st.success(
-                f"Combined {len(selected_group_items)} {grouping_type.lower()} "
-                f'as “{custom_group_name}.” Turn off Apply custom group to separate them.'
-            )
+                df[group["column"]].isin(group["items"]),
+                group["column"],
+            ] = group["name"]
+            active_group_names.append(group["name"])
+
+    if active_group_names:
+        st.success("Active custom groups: " + ", ".join(active_group_names))
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "Plays by Formation",
