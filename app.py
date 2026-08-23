@@ -102,11 +102,13 @@ def apply_global_play_settings(df):
         )
 
     # Remove extra whitespace left behind by any enabled grouping rules.
-    df["concept"] = (
+    cleaned_concepts = (
         cleaned_concepts
         .str.replace(r"\s+", " ", regex=True)
         .str.strip(" -_/")
     )
+
+    df["concept"] = cleaned_concepts
 
     return df
 
@@ -1563,6 +1565,53 @@ def render_play_breakdown(uploaded_file):
         st.success("RPO-tagged plays are currently grouped with their base plays.")
     else:
         st.info("RPO-tagged plays are currently shown separately.")
+
+    with st.expander("Custom Grouping", expanded=False):
+        st.caption(
+            "Temporarily combine selected plays or formations. Turn the group "
+            "off at any time to restore the original separate values."
+        )
+
+        grouping_type = st.radio(
+            "What do you want to combine?",
+            ["Plays", "Formations"],
+            horizontal=True,
+            key="custom_grouping_type",
+        )
+        grouping_column = "concept" if grouping_type == "Plays" else "formation"
+        grouping_options = sorted(df[grouping_column].dropna().unique().tolist())
+
+        selected_group_items = st.multiselect(
+            f"Select {grouping_type.lower()} to combine",
+            grouping_options,
+            key=f"custom_{grouping_column}_items",
+            help="Select at least two items.",
+        )
+        custom_group_name = st.text_input(
+            "Combined group name",
+            value="Combined Group",
+            key=f"custom_{grouping_column}_name",
+        ).strip()
+        apply_custom_group = st.toggle(
+            "Apply custom group",
+            value=False,
+            key=f"apply_custom_{grouping_column}_group",
+        )
+
+    if apply_custom_group:
+        if len(selected_group_items) < 2:
+            st.warning("Select at least two items before applying a custom group.")
+        elif not custom_group_name:
+            st.warning("Enter a name for the combined group.")
+        else:
+            df.loc[
+                df[grouping_column].isin(selected_group_items),
+                grouping_column,
+            ] = custom_group_name
+            st.success(
+                f"Combined {len(selected_group_items)} {grouping_type.lower()} "
+                f'as “{custom_group_name}.” Turn off Apply custom group to separate them.'
+            )
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "Plays by Formation",
