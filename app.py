@@ -64,18 +64,49 @@ def apply_global_play_settings(df):
     """Apply settings shared by every dashboard without changing source data."""
     df = df.copy()
 
-    if st.session_state.get("ignore_rpo_tag", True) and "concept" in df.columns:
-        df["concept"] = (
-            df["concept"]
-            .astype("string")
-            .str.replace(
-                r"\s*\(\s*rpo\s*\)\s*$",
-                "",
-                regex=True,
-                case=False,
-            )
-            .str.strip()
+    if "concept" not in df.columns:
+        return df
+
+    cleaned_concepts = df["concept"].astype("string")
+
+    if st.session_state.get("ignore_rpo_tag", True):
+        cleaned_concepts = cleaned_concepts.str.replace(
+            r"\s*\(\s*rpo\s*\)\s*$",
+            "",
+            regex=True,
+            case=False,
         )
+
+    if st.session_state.get("ignore_lt_tag", False):
+        # Only remove LT when it appears at the beginning of a play name.
+        cleaned_concepts = cleaned_concepts.str.replace(
+            r"^\s*lt\b[\s_-]*",
+            "",
+            regex=True,
+            case=False,
+        )
+
+    if st.session_state.get("ignore_read_tag", False):
+        cleaned_concepts = cleaned_concepts.str.replace(
+            r"\bread\b",
+            "",
+            regex=True,
+            case=False,
+        )
+
+    if st.session_state.get("ignore_play_numbers", False):
+        cleaned_concepts = cleaned_concepts.str.replace(
+            r"\b\d+\b",
+            "",
+            regex=True,
+        )
+
+    # Remove extra whitespace left behind by any enabled grouping rules.
+    df["concept"] = (
+        cleaned_concepts
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip(" -_/")
+    )
 
     return df
 
@@ -1533,7 +1564,11 @@ def render_play_breakdown(uploaded_file):
     else:
         st.info("RPO-tagged plays are currently shown separately.")
 
-    tab1, tab2 = st.tabs(["Plays by Formation", "Formations by Play"])
+    tab1, tab2, tab3 = st.tabs([
+        "Plays by Formation",
+        "Formations by Play",
+        "Formation Averages",
+    ])
 
     with tab1:
         st.subheader("Plays by Formation")
@@ -1694,6 +1729,97 @@ def render_play_breakdown(uploaded_file):
                 "shortest_play": st.column_config.NumberColumn("Shortest Play", format="%.1f yds"),
             },
         )
+    with tab3:
+        st.subheader("Formation Averages")
+        st.write(
+            "Compare every formation by average gain, shortest gain, "
+            "longest gain, and number of plays."
+        )
+
+        if "gain_loss" not in df.columns or not df["gain_loss"].notna().any():
+            st.warning(
+                "Formation averages require a gain/loss column such as "
+                "GN/LS, Gain Loss, or Gain/Loss."
+            )
+        else:
+            formation_averages = (
+                df.groupby("formation", dropna=False)
+                .agg(
+                    average_gain=("gain_loss", "mean"),
+                    shortest_gain=("gain_loss", "min"),
+                    longest_gain=("gain_loss", "max"),
+                    number_of_plays=("formation", "size"),
+                )
+                .reset_index()
+                .sort_values(
+                    ["average_gain", "number_of_plays"],
+                    ascending=[False, False],
+                )
+            )
+
+            formation_averages["average_gain"] = formation_averages["average_gain"].round(1)
+            formation_averages["shortest_gain"] = formation_averages["shortest_gain"].round(1)
+            formation_averages["longest_gain"] = formation_averages["longest_gain"].round(1)
+
+            fig = px.bar(
+                formation_averages.sort_values("average_gain"),
+                x="average_gain",
+                y="formation",
+                orientation="h",
+                color="average_gain",
+                color_continuous_scale="Blues",
+                text="average_gain",
+                title="Average Gain by Formation",
+                labels={
+                    "formation": "Formation",
+                    "average_gain": "Average Gain",
+                },
+                template="plotly_dark",
+                custom_data=[
+                    "number_of_plays",
+                    "shortest_gain",
+                    "longest_gain",
+                ],
+            )
+            fig.update_traces(
+                texttemplate="%{text:.1f} yds",
+                textposition="outside",
+                hovertemplate=(
+                    "<b>Formation:</b> %{y}<br>"
+                    "<b>Average Gain:</b> %{x:.1f} yds<br>"
+                    "<b>Number of Plays:</b> %{customdata[0]}<br>"
+                    "<b>Shortest Gain:</b> %{customdata[1]:.1f} yds<br>"
+                    "<b>Longest Gain:</b> %{customdata[2]:.1f} yds"
+                    "<extra></extra>"
+                ),
+            )
+            fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
+            st.plotly_chart(
+                themed_chart(fig),
+                use_container_width=True,
+                theme=None,
+            )
+
+            st.dataframe(
+                formation_averages,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "formation": "Formation",
+                    "average_gain": st.column_config.NumberColumn(
+                        "Average Gain", format="%.1f yds"
+                    ),
+                    "shortest_gain": st.column_config.NumberColumn(
+                        "Shortest Gain", format="%.1f yds"
+                    ),
+                    "longest_gain": st.column_config.NumberColumn(
+                        "Longest Gain", format="%.1f yds"
+                    ),
+                    "number_of_plays": st.column_config.NumberColumn(
+                        "Number of Plays", format="%d"
+                    ),
+                },
+            )
 
 
 def clear_shared_upload():
@@ -1741,6 +1867,33 @@ st.sidebar.toggle(
     help=(
         "Remove the (RPO) tag from every play when grouping data. For example, "
         "Power and Power (RPO) will be counted together."
+    ),
+)
+st.sidebar.toggle(
+    "Group plays with leading LT",
+    value=False,
+    key="ignore_lt_tag",
+    help=(
+        "Remove LT when it appears at the beginning of a play name. "
+        "For example, LT Troff and Troff will be counted together."
+    ),
+)
+st.sidebar.toggle(
+    "Group Read-tagged plays",
+    value=False,
+    key="ignore_read_tag",
+    help=(
+        "Remove the standalone word Read from play names. For example, "
+        "Counter Read and Counter will be counted together."
+    ),
+)
+st.sidebar.toggle(
+    "Group numbered play variations",
+    value=False,
+    key="ignore_play_numbers",
+    help=(
+        "Remove standalone numbers from play names. For example, "
+        "Troff 1 and Troff will be counted together."
     ),
 )
 
