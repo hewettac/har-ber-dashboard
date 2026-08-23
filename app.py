@@ -59,6 +59,26 @@ def themed_chart(figure):
     )
     return figure
 
+
+def apply_global_play_settings(df):
+    """Apply settings shared by every dashboard without changing source data."""
+    df = df.copy()
+
+    if st.session_state.get("ignore_rpo_tag", True) and "concept" in df.columns:
+        df["concept"] = (
+            df["concept"]
+            .astype("string")
+            .str.replace(
+                r"\s*\(\s*rpo\s*\)\s*$",
+                "",
+                regex=True,
+                case=False,
+            )
+            .str.strip()
+        )
+
+    return df
+
 st.markdown(
     """
     <style>
@@ -234,7 +254,7 @@ def render_home():
         unsafe_allow_html=True,
     )
 
-    basic_col, advanced_col = st.columns(2, gap="large")
+    basic_col, advanced_col, breakdown_col = st.columns(3, gap="large")
 
     with basic_col:
         st.markdown(
@@ -274,6 +294,26 @@ def render_home():
             use_container_width=True,
             on_click=go_to,
             args=("Advanced Analytics",),
+        )
+
+    with breakdown_col:
+        st.markdown(
+            """
+            <div class="tool-card">
+                <h3>Play Breakdown</h3>
+                <p>
+                    Break down plays by formation and formations by
+                    play selection.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.button(
+            "Open Play Breakdown",
+            use_container_width=True,
+            on_click=go_to,
+            args=("Play Breakdown",),
         )
 
 
@@ -534,6 +574,7 @@ def render_basic_dashboard(uploaded_file):
     
     df = pd.read_excel(uploaded_file)
     df = standardize_columns(df)
+    df = apply_global_play_settings(df)
     df = ensure_numeric_columns(df, ["down", "distance", "yardline", "gain_loss", "quarter"])
     
     required_main_cols = ["down", "yardline"]
@@ -1243,6 +1284,7 @@ def render_advanced_analytics(uploaded_file):
                 if col in v:
                     rename_dict[col] = s
         df = df.rename(columns=rename_dict)
+        df = apply_global_play_settings(df)
     
         if 'gain_loss' in df.columns:
             df['gain_loss'] = pd.to_numeric(df['gain_loss'], errors='coerce').fillna(0)
@@ -1428,6 +1470,179 @@ def render_advanced_analytics(uploaded_file):
                 st.plotly_chart(themed_chart(fig2), use_container_width=True, theme=None)
 
 
+def render_play_breakdown(uploaded_file):
+    import pandas as pd
+    import plotly.express as px
+
+    st.title("Play Breakdown")
+    st.caption(
+        "Analyze which formations are used for each play and which plays "
+        "are used from each formation."
+    )
+
+    if uploaded_file is None:
+        st.info("Upload a Hudl Excel file from the sidebar to begin.")
+        return
+
+    df = pd.read_excel(uploaded_file)
+    df.columns = df.columns.str.lower().str.strip()
+
+    column_map = {
+        "off form": "formation",
+        "off formation": "formation",
+        "off play": "concept",
+        "play concept": "concept",
+        "play": "concept",
+    }
+    df = df.rename(
+        columns={
+            old_name: new_name
+            for old_name, new_name in column_map.items()
+            if old_name in df.columns
+        }
+    )
+
+    missing_columns = [
+        column for column in ["formation", "concept"]
+        if column not in df.columns
+    ]
+    if missing_columns:
+        st.error(
+            "The uploaded file is missing the following required columns: "
+            + ", ".join(missing_columns)
+        )
+        return
+
+    df["formation"] = df["formation"].astype("string").str.strip()
+    df["concept"] = df["concept"].astype("string").str.strip()
+    df = df.dropna(subset=["formation", "concept"])
+    df = df[(df["formation"] != "") & (df["concept"] != "")]
+    df = apply_global_play_settings(df)
+
+    if df.empty:
+        st.warning("No usable formation and play data were found.")
+        return
+
+    if st.session_state.get("ignore_rpo_tag", True):
+        st.success("RPO-tagged plays are currently grouped with their base plays.")
+    else:
+        st.info("RPO-tagged plays are currently shown separately.")
+
+    tab1, tab2 = st.tabs(["Plays by Formation", "Formations by Play"])
+
+    with tab1:
+        st.subheader("Plays by Formation")
+        st.write("Select a play to see which formations it was run from.")
+
+        selected_play = st.selectbox(
+            "Select a play",
+            sorted(df["concept"].unique().tolist()),
+            key="breakdown_selected_play",
+        )
+        play_data = df[df["concept"] == selected_play]
+        summary = (
+            play_data["formation"]
+            .value_counts()
+            .rename_axis("formation")
+            .reset_index(name="plays")
+        )
+        total = int(summary["plays"].sum())
+        summary["percentage"] = (summary["plays"] / total * 100).round(1)
+
+        metric1, metric2 = st.columns(2)
+        metric1.metric("Total Plays", f"{total:,}")
+        metric2.metric("Formations Used", summary["formation"].nunique())
+
+        fig = px.bar(
+            summary.sort_values("plays"),
+            x="plays",
+            y="formation",
+            orientation="h",
+            text="percentage",
+            title=f"Formations Used for {selected_play}",
+            labels={"plays": "Number of Plays", "formation": "Formation"},
+            color="plays",
+            color_continuous_scale="Blues",
+            template="plotly_dark",
+        )
+        fig.update_traces(
+            texttemplate="%{text:.1f}%",
+            textposition="outside",
+            hovertemplate=(
+                "<b>Formation:</b> %{y}<br><b>Plays:</b> %{x}<br>"
+                "<b>Usage:</b> %{text:.1f}%<extra></extra>"
+            ),
+        )
+        fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
+        st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
+        st.dataframe(
+            summary,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "formation": "Formation",
+                "plays": st.column_config.NumberColumn("Plays", format="%d"),
+                "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
+            },
+        )
+
+    with tab2:
+        st.subheader("Formations by Play")
+        st.write("Select a formation to see which plays were run from it.")
+
+        selected_formation = st.selectbox(
+            "Select a formation",
+            sorted(df["formation"].unique().tolist()),
+            key="breakdown_selected_formation",
+        )
+        formation_data = df[df["formation"] == selected_formation]
+        summary = (
+            formation_data["concept"]
+            .value_counts()
+            .rename_axis("concept")
+            .reset_index(name="plays")
+        )
+        total = int(summary["plays"].sum())
+        summary["percentage"] = (summary["plays"] / total * 100).round(1)
+
+        metric1, metric2 = st.columns(2)
+        metric1.metric("Total Plays", f"{total:,}")
+        metric2.metric("Different Plays", summary["concept"].nunique())
+
+        fig = px.bar(
+            summary.sort_values("plays"),
+            x="plays",
+            y="concept",
+            orientation="h",
+            text="percentage",
+            title=f"Plays Run from {selected_formation}",
+            labels={"plays": "Number of Plays", "concept": "Play"},
+            color="plays",
+            color_continuous_scale="Blues",
+            template="plotly_dark",
+        )
+        fig.update_traces(
+            texttemplate="%{text:.1f}%",
+            textposition="outside",
+            hovertemplate=(
+                "<b>Play:</b> %{y}<br><b>Plays:</b> %{x}<br>"
+                "<b>Usage:</b> %{text:.1f}%<extra></extra>"
+            ),
+        )
+        fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
+        st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
+        st.dataframe(
+            summary,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "concept": "Play",
+                "plays": st.column_config.NumberColumn("Plays", format="%d"),
+                "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
+            },
+        )
+
+
 def clear_shared_upload():
     st.session_state.pop("shared_upload_bytes", None)
     st.session_state.pop("shared_upload_name", None)
@@ -1436,7 +1651,7 @@ def clear_shared_upload():
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Home", "Basic Dashboard", "Advanced Analytics"],
+    ["Home", "Basic Dashboard", "Advanced Analytics", "Play Breakdown"],
     key="active_page",
 )
 
@@ -1464,9 +1679,23 @@ if st.session_state.get("shared_upload_bytes"):
         use_container_width=True,
     )
 
+st.sidebar.divider()
+st.sidebar.subheader("Dashboard Settings")
+st.sidebar.toggle(
+    "Group RPO-tagged plays",
+    value=True,
+    key="ignore_rpo_tag",
+    help=(
+        "Remove the (RPO) tag from every play when grouping data. For example, "
+        "Power and Power (RPO) will be counted together."
+    ),
+)
+
 if page == "Basic Dashboard":
     render_basic_dashboard(uploaded_file)
 elif page == "Advanced Analytics":
     render_advanced_analytics(uploaded_file)
+elif page == "Play Breakdown":
+    render_play_breakdown(uploaded_file)
 else:
     render_home()
