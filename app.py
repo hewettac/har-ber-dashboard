@@ -1493,6 +1493,9 @@ def render_play_breakdown(uploaded_file):
         "off play": "concept",
         "play concept": "concept",
         "play": "concept",
+        "gn/ls": "gain_loss",
+        "gain loss": "gain_loss",
+        "gain/loss": "gain_loss",
     }
     df = df.rename(
         columns={
@@ -1515,6 +1518,8 @@ def render_play_breakdown(uploaded_file):
 
     df["formation"] = df["formation"].astype("string").str.strip()
     df["concept"] = df["concept"].astype("string").str.strip()
+    if "gain_loss" in df.columns:
+        df["gain_loss"] = pd.to_numeric(df["gain_loss"], errors="coerce")
     df = df.dropna(subset=["formation", "concept"])
     df = df[(df["formation"] != "") & (df["concept"] != "")]
     df = apply_global_play_settings(df)
@@ -1540,18 +1545,39 @@ def render_play_breakdown(uploaded_file):
             key="breakdown_selected_play",
         )
         play_data = df[df["concept"] == selected_play]
-        summary = (
-            play_data["formation"]
-            .value_counts()
-            .rename_axis("formation")
-            .reset_index(name="plays")
-        )
+        if "gain_loss" in play_data.columns:
+            summary = (
+                play_data.groupby("formation", dropna=False)
+                .agg(
+                    plays=("formation", "size"),
+                    average_gain=("gain_loss", "mean"),
+                    longest_play=("gain_loss", "max"),
+                    shortest_play=("gain_loss", "min"),
+                )
+                .reset_index()
+                .sort_values("plays", ascending=False)
+            )
+        else:
+            summary = (
+                play_data["formation"]
+                .value_counts()
+                .rename_axis("formation")
+                .reset_index(name="plays")
+            )
         total = int(summary["plays"].sum())
         summary["percentage"] = (summary["plays"] / total * 100).round(1)
 
-        metric1, metric2 = st.columns(2)
+        metric1, metric2, metric3, metric4, metric5 = st.columns(5)
         metric1.metric("Total Plays", f"{total:,}")
         metric2.metric("Formations Used", summary["formation"].nunique())
+        if "gain_loss" in play_data.columns and play_data["gain_loss"].notna().any():
+            metric3.metric("Average Gain", f"{play_data['gain_loss'].mean():.1f} yds")
+            metric4.metric("Longest Play", f"{play_data['gain_loss'].max():.1f} yds")
+            metric5.metric("Shortest Play", f"{play_data['gain_loss'].min():.1f} yds")
+        else:
+            metric3.metric("Average Gain", "N/A")
+            metric4.metric("Longest Play", "N/A")
+            metric5.metric("Shortest Play", "N/A")
 
         fig = px.bar(
             summary.sort_values("plays"),
@@ -1583,6 +1609,9 @@ def render_play_breakdown(uploaded_file):
                 "formation": "Formation",
                 "plays": st.column_config.NumberColumn("Plays", format="%d"),
                 "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
+                "average_gain": st.column_config.NumberColumn("Average Gain", format="%.1f yds"),
+                "longest_play": st.column_config.NumberColumn("Longest Play", format="%.1f yds"),
+                "shortest_play": st.column_config.NumberColumn("Shortest Play", format="%.1f yds"),
             },
         )
 
@@ -1596,18 +1625,39 @@ def render_play_breakdown(uploaded_file):
             key="breakdown_selected_formation",
         )
         formation_data = df[df["formation"] == selected_formation]
-        summary = (
-            formation_data["concept"]
-            .value_counts()
-            .rename_axis("concept")
-            .reset_index(name="plays")
-        )
+        if "gain_loss" in formation_data.columns:
+            summary = (
+                formation_data.groupby("concept", dropna=False)
+                .agg(
+                    plays=("concept", "size"),
+                    average_gain=("gain_loss", "mean"),
+                    longest_play=("gain_loss", "max"),
+                    shortest_play=("gain_loss", "min"),
+                )
+                .reset_index()
+                .sort_values("plays", ascending=False)
+            )
+        else:
+            summary = (
+                formation_data["concept"]
+                .value_counts()
+                .rename_axis("concept")
+                .reset_index(name="plays")
+            )
         total = int(summary["plays"].sum())
         summary["percentage"] = (summary["plays"] / total * 100).round(1)
 
-        metric1, metric2 = st.columns(2)
+        metric1, metric2, metric3, metric4, metric5 = st.columns(5)
         metric1.metric("Total Plays", f"{total:,}")
         metric2.metric("Different Plays", summary["concept"].nunique())
+        if "gain_loss" in formation_data.columns and formation_data["gain_loss"].notna().any():
+            metric3.metric("Average Gain", f"{formation_data['gain_loss'].mean():.1f} yds")
+            metric4.metric("Longest Play", f"{formation_data['gain_loss'].max():.1f} yds")
+            metric5.metric("Shortest Play", f"{formation_data['gain_loss'].min():.1f} yds")
+        else:
+            metric3.metric("Average Gain", "N/A")
+            metric4.metric("Longest Play", "N/A")
+            metric5.metric("Shortest Play", "N/A")
 
         fig = px.bar(
             summary.sort_values("plays"),
@@ -1639,6 +1689,9 @@ def render_play_breakdown(uploaded_file):
                 "concept": "Play",
                 "plays": st.column_config.NumberColumn("Plays", format="%d"),
                 "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
+                "average_gain": st.column_config.NumberColumn("Average Gain", format="%.1f yds"),
+                "longest_play": st.column_config.NumberColumn("Longest Play", format="%.1f yds"),
+                "shortest_play": st.column_config.NumberColumn("Shortest Play", format="%.1f yds"),
             },
         )
 
