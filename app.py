@@ -77,7 +77,7 @@ def apply_global_play_settings(df):
             case=False,
         )
 
-    if st.session_state.get("ignore_lt_tag", False):
+    if st.session_state.get("group_lt_plays_v2", True):
         # Only remove LT when it appears at the beginning of a play name.
         cleaned_concepts = cleaned_concepts.str.replace(
             r"^\s*lt\b[\s_-]*",
@@ -86,7 +86,7 @@ def apply_global_play_settings(df):
             case=False,
         )
 
-    if st.session_state.get("ignore_read_tag", False):
+    if st.session_state.get("group_read_plays_v2", True):
         cleaned_concepts = cleaned_concepts.str.replace(
             r"\bread\b",
             "",
@@ -94,9 +94,9 @@ def apply_global_play_settings(df):
             case=False,
         )
 
-    if st.session_state.get("ignore_play_numbers", False):
+    if st.session_state.get("group_numbered_plays_v2", True):
         cleaned_concepts = cleaned_concepts.str.replace(
-            r"\b\d+\b",
+            r"\d+",
             "",
             regex=True,
         )
@@ -1564,10 +1564,11 @@ def render_play_breakdown(uploaded_file):
     else:
         st.info("RPO-tagged plays are currently shown separately.")
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Plays by Formation",
         "Formations by Play",
         "Formation Averages",
+        "Play Averages",
     ])
 
     with tab1:
@@ -1820,6 +1821,97 @@ def render_play_breakdown(uploaded_file):
                     ),
                 },
             )
+    with tab4:
+        st.subheader("Play Averages")
+        st.write(
+            "Compare every play by average gain, shortest gain, "
+            "longest gain, and number of plays."
+        )
+
+        if "gain_loss" not in df.columns or not df["gain_loss"].notna().any():
+            st.warning(
+                "Play averages require a gain/loss column such as "
+                "GN/LS, Gain Loss, or Gain/Loss."
+            )
+        else:
+            play_averages = (
+                df.groupby("concept", dropna=False)
+                .agg(
+                    average_gain=("gain_loss", "mean"),
+                    shortest_gain=("gain_loss", "min"),
+                    longest_gain=("gain_loss", "max"),
+                    number_of_plays=("concept", "size"),
+                )
+                .reset_index()
+                .sort_values(
+                    ["average_gain", "number_of_plays"],
+                    ascending=[False, False],
+                )
+            )
+
+            play_averages["average_gain"] = play_averages["average_gain"].round(1)
+            play_averages["shortest_gain"] = play_averages["shortest_gain"].round(1)
+            play_averages["longest_gain"] = play_averages["longest_gain"].round(1)
+
+            fig = px.bar(
+                play_averages.sort_values("average_gain"),
+                x="average_gain",
+                y="concept",
+                orientation="h",
+                color="average_gain",
+                color_continuous_scale="Blues",
+                text="average_gain",
+                title="Average Gain by Play",
+                labels={
+                    "concept": "Play",
+                    "average_gain": "Average Gain",
+                },
+                template="plotly_dark",
+                custom_data=[
+                    "number_of_plays",
+                    "shortest_gain",
+                    "longest_gain",
+                ],
+            )
+            fig.update_traces(
+                texttemplate="%{text:.1f} yds",
+                textposition="outside",
+                hovertemplate=(
+                    "<b>Play:</b> %{y}<br>"
+                    "<b>Average Gain:</b> %{x:.1f} yds<br>"
+                    "<b>Number of Plays:</b> %{customdata[0]}<br>"
+                    "<b>Shortest Gain:</b> %{customdata[1]:.1f} yds<br>"
+                    "<b>Longest Gain:</b> %{customdata[2]:.1f} yds"
+                    "<extra></extra>"
+                ),
+            )
+            fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
+            st.plotly_chart(
+                themed_chart(fig),
+                use_container_width=True,
+                theme=None,
+            )
+
+            st.dataframe(
+                play_averages,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "concept": "Play",
+                    "average_gain": st.column_config.NumberColumn(
+                        "Average Gain", format="%.1f yds"
+                    ),
+                    "shortest_gain": st.column_config.NumberColumn(
+                        "Shortest Gain", format="%.1f yds"
+                    ),
+                    "longest_gain": st.column_config.NumberColumn(
+                        "Longest Gain", format="%.1f yds"
+                    ),
+                    "number_of_plays": st.column_config.NumberColumn(
+                        "Number of Plays", format="%d"
+                    ),
+                },
+            )
 
 
 def clear_shared_upload():
@@ -1871,8 +1963,8 @@ st.sidebar.toggle(
 )
 st.sidebar.toggle(
     "Group plays with leading LT",
-    value=False,
-    key="ignore_lt_tag",
+    value=True,
+    key="group_lt_plays_v2",
     help=(
         "Remove LT when it appears at the beginning of a play name. "
         "For example, LT Troff and Troff will be counted together."
@@ -1880,8 +1972,8 @@ st.sidebar.toggle(
 )
 st.sidebar.toggle(
     "Group Read-tagged plays",
-    value=False,
-    key="ignore_read_tag",
+    value=True,
+    key="group_read_plays_v2",
     help=(
         "Remove the standalone word Read from play names. For example, "
         "Counter Read and Counter will be counted together."
@@ -1889,8 +1981,8 @@ st.sidebar.toggle(
 )
 st.sidebar.toggle(
     "Group numbered play variations",
-    value=False,
-    key="ignore_play_numbers",
+    value=True,
+    key="group_numbered_plays_v2",
     help=(
         "Remove standalone numbers from play names. For example, "
         "Troff 1 and Troff will be counted together."
