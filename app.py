@@ -1,4 +1,7 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
 import plotly.io as pio
 from io import BytesIO
 
@@ -9,9 +12,12 @@ st.set_page_config(
     layout="wide",
 )
 
-# Apply one chart theme to every Plotly figure in both dashboards. Updating the
-# dark template also covers figures that explicitly use template="plotly_dark".
+
+# =========================================================
+# GLOBAL CHART THEME
+# =========================================================
 pio.templates.default = "plotly_dark"
+
 pio.templates["plotly_dark"].layout.update(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -36,7 +42,7 @@ pio.templates["plotly_dark"].layout.update(
 
 
 def themed_chart(figure):
-    """Force the Har-Ber theme onto a figure immediately before rendering."""
+    """Apply the Har-Ber theme immediately before rendering."""
     figure.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -60,8 +66,84 @@ def themed_chart(figure):
     return figure
 
 
+def show_chart(figure, key=None):
+    st.plotly_chart(
+        themed_chart(figure),
+        use_container_width=True,
+        theme=None,
+        key=key,
+    )
+
+
+# =========================================================
+# SHARED DATA HELPERS
+# =========================================================
+COLUMN_MAP = {
+    "down": ["down", "dn"],
+    "distance": [
+        "distance", "dist", "togo", "yards to go", "ydstogo"
+    ],
+    "hash": ["hash"],
+    "yardline": ["yardline", "yard ln", "spot", "ball on"],
+    "play_type": ["play_type", "play type", "playtype", "type"],
+    "result": ["result"],
+    "gain_loss": [
+        "gain_loss", "gn/ls", "gain loss", "gain/loss"
+    ],
+    "formation": ["formation", "off form", "off formation"],
+    "concept": [
+        "concept", "off play", "play concept", "play", "play call"
+    ],
+    "off_str": ["off str"],
+    "play_direction": ["play_direction", "play direction", "play dir"],
+    "gap": ["gap"],
+    "pass_zone": ["pass_zone", "pass zone"],
+    "def_front": ["def_front", "def front"],
+    "coverage": ["coverage"],
+    "blitz": ["blitz"],
+    "quarter": ["quarter", "qtr"],
+}
+
+
+def standardize_columns(df):
+    """Rename recognized headers while avoiding duplicate standard names."""
+    df = df.copy()
+    df.columns = [
+        str(column).lower().strip() for column in df.columns
+    ]
+
+    rename_dict = {}
+    for standard_name, variants in COLUMN_MAP.items():
+        if standard_name in df.columns:
+            continue
+
+        match = next(
+            (column for column in df.columns if column in variants),
+            None,
+        )
+        if match is not None:
+            rename_dict[match] = standard_name
+
+    return df.rename(columns=rename_dict)
+
+
+def ensure_numeric_columns(df, columns):
+    df = df.copy()
+    for column in columns:
+        if column in df.columns:
+            df[column] = pd.to_numeric(
+                df[column], errors="coerce"
+            )
+    return df
+
+
+def read_uploaded_excel(uploaded_file):
+    uploaded_file.seek(0)
+    return pd.read_excel(uploaded_file)
+
+
 def apply_global_play_settings(df):
-    """Apply settings shared by every dashboard without changing source data."""
+    """Apply sidebar grouping rules without changing source data."""
     df = df.copy()
 
     if "concept" not in df.columns:
@@ -78,7 +160,6 @@ def apply_global_play_settings(df):
         )
 
     if st.session_state.get("group_lt_plays_v2", True):
-        # Only remove LT when it appears at the beginning of a play name.
         cleaned_concepts = cleaned_concepts.str.replace(
             r"^\s*lt\b[\s_-]*",
             "",
@@ -101,17 +182,254 @@ def apply_global_play_settings(df):
             regex=True,
         )
 
-    # Remove extra whitespace left behind by any enabled grouping rules.
-    cleaned_concepts = (
+    df["concept"] = (
         cleaned_concepts
         .str.replace(r"\s+", " ", regex=True)
         .str.strip(" -_/")
     )
+    return df
 
-    df["concept"] = cleaned_concepts
+
+def apply_custom_breakdown_groups(df):
+    """Apply enabled custom groups to formation and concept columns."""
+    df = df.copy()
+    active_names = []
+
+    for group in st.session_state.get(
+        "custom_breakdown_groups", []
+    ):
+        enabled = st.session_state.get(
+            f"custom_group_enabled_{group['id']}",
+            group.get("enabled", True),
+        )
+
+        if enabled and group["column"] in df.columns:
+            df.loc[
+                df[group["column"]].isin(group["items"]),
+                group["column"],
+            ] = group["name"]
+            active_names.append(group["name"])
+
+    return df, active_names
+
+
+def sidebar_logo():
+    try:
+        st.sidebar.image(
+            "logo_har-ber-high-school.png", width=150
+        )
+    except Exception:
+        pass
+
+
+def custom_yard_group(yardline):
+    if pd.isna(yardline):
+        return "Unknown"
+
+    if 0 >= yardline >= -9:
+        return "0 - -9"
+    elif -10 >= yardline >= -19:
+        return "-10 - -19"
+    elif -20 >= yardline >= -29:
+        return "-20 - -29"
+    elif -30 >= yardline >= -39:
+        return "-30 - -39"
+    elif -40 >= yardline >= -50:
+        return "-40 - -50"
+    elif 50 >= yardline >= 40:
+        return "+50 - +40"
+    elif 39 >= yardline >= 30:
+        return "+39 - +30"
+    elif 29 >= yardline >= 20:
+        return "+29 - +20"
+    elif 19 >= yardline >= 10:
+        return "+19 - +10"
+    elif 9 >= yardline >= 0:
+        return "+9 - 0"
+    return "Other"
+
+
+def add_prediction_features(df):
+    df = ensure_numeric_columns(
+        df, ["distance", "yardline", "down"]
+    )
+
+    df["distance_bucket"] = pd.cut(
+        df["distance"],
+        bins=[-1, 3, 7, 100],
+        labels=[0, 1, 2],
+    ).astype(float)
+
+    df["field_zone"] = pd.cut(
+        df["yardline"],
+        bins=[-51, -20, 20, 51],
+        labels=[0, 1, 2],
+    ).astype(float)
 
     return df
 
+
+@st.cache_data
+def load_base_data():
+    base = pd.read_csv("AllPlaysTrainData.csv")
+    base = standardize_columns(base)
+    return ensure_numeric_columns(
+        base,
+        ["down", "distance", "yardline", "gain_loss", "quarter"],
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def train_model(base_df, weekly_df):
+    from sklearn.metrics import accuracy_score
+    from sklearn.model_selection import train_test_split
+    from xgboost import XGBClassifier
+
+    base_df = standardize_columns(base_df)
+    weekly_df = standardize_columns(weekly_df)
+
+    required = ["down", "distance", "yardline", "play_type"]
+
+    for column in required:
+        if column not in base_df.columns:
+            raise ValueError(
+                f"Base data missing column: {column}"
+            )
+        if column not in weekly_df.columns:
+            raise ValueError(
+                f"Weekly data missing column: {column}"
+            )
+
+    base_df = add_prediction_features(base_df)
+    weekly_df = add_prediction_features(weekly_df)
+
+    usable_columns = [
+        "down", "distance", "yardline", "play_type",
+        "distance_bucket", "field_zone",
+    ]
+
+    base_df = base_df.dropna(subset=usable_columns).copy()
+    weekly_df = weekly_df.dropna(subset=usable_columns).copy()
+
+    if weekly_df.empty:
+        raise ValueError(
+            "Weekly dataset has no usable rows."
+        )
+
+    base_df["weight"] = 1
+    weekly_df["weight"] = 6
+
+    combined = pd.concat(
+        [base_df, weekly_df], ignore_index=True
+    )
+
+    features = [
+        "down", "distance", "yardline",
+        "distance_bucket", "field_zone",
+    ]
+
+    combined["play_type"] = (
+        combined["play_type"].astype(str).str.strip()
+    )
+    combined = combined[
+        combined["play_type"] != ""
+    ].copy()
+
+    counts = combined["play_type"].value_counts()
+    valid_types = counts[counts >= 2].index
+    combined = combined[
+        combined["play_type"].isin(valid_types)
+    ].copy()
+
+    n_classes = combined["play_type"].nunique()
+
+    if n_classes < 2:
+        raise ValueError(
+            "Not enough play types with at least 2 samples "
+            "to train the model."
+        )
+
+    play_types = sorted(
+        combined["play_type"].unique()
+    )
+    play_to_int = {
+        play: index for index, play in enumerate(play_types)
+    }
+    int_to_play = {
+        index: play for play, index in play_to_int.items()
+    }
+
+    combined["y"] = (
+        combined["play_type"].map(play_to_int).astype(int)
+    )
+
+    X = combined[features].reset_index(drop=True)
+    y = combined["y"].reset_index(drop=True)
+    weights = combined["weight"].reset_index(drop=True)
+
+    if len(X) == 0 or y.nunique() < 2:
+        raise ValueError(
+            "No usable multi-class training data remain."
+        )
+
+    (
+        X_train, X_test,
+        y_train, y_test,
+        w_train, w_test,
+    ) = train_test_split(
+        X,
+        y,
+        weights,
+        test_size=0.2,
+        random_state=42,
+        stratify=y,
+    )
+
+    if y_train.nunique() < 2:
+        raise ValueError(
+            "Training split contains fewer than 2 classes."
+        )
+
+    model_settings = {
+        "n_estimators": 400,
+        "max_depth": 6,
+        "learning_rate": 0.05,
+        "subsample": 0.9,
+        "colsample_bytree": 0.9,
+        "random_state": 42,
+    }
+
+    if n_classes == 2:
+        model = XGBClassifier(
+            **model_settings,
+            objective="binary:logistic",
+            eval_metric="logloss",
+        )
+    else:
+        model = XGBClassifier(
+            **model_settings,
+            objective="multi:softprob",
+            num_class=n_classes,
+            eval_metric="mlogloss",
+        )
+
+    model.fit(
+        X_train, y_train, sample_weight=w_train
+    )
+
+    accuracy = accuracy_score(
+        y_test, model.predict(X_test)
+    )
+
+    return (
+        model, int_to_play, accuracy,
+        X_test, y_test, features, n_classes,
+    )
+
+
+# =========================================================
+# GLOBAL STYLING
+# =========================================================
 st.markdown(
     """
     <style>
@@ -125,23 +443,54 @@ st.markdown(
         --hb-muted: #b8cfdf;
         --hb-border: rgba(127, 219, 255, 0.28);
     }
-    html, body, [class*="css"] { color: var(--hb-text); }
+
+    html, body, [class*="css"] {
+        color: var(--hb-text);
+    }
+
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(circle at top right, rgba(127, 219, 255, 0.14), transparent 35%),
-            radial-gradient(circle at bottom left, rgba(10, 67, 112, 0.28), transparent 38%),
+            radial-gradient(
+                circle at top right,
+                rgba(127,219,255,0.14),
+                transparent 35%
+            ),
+            radial-gradient(
+                circle at bottom left,
+                rgba(10,67,112,0.28),
+                transparent 38%
+            ),
             var(--hb-bg);
         color: var(--hb-text);
     }
-    [data-testid="stHeader"] { background: transparent; }
+
+    [data-testid="stHeader"] {
+        background: transparent;
+    }
+
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #061426 0%, #0a2342 100%);
+        background: linear-gradient(
+            180deg, #061426 0%, #0a2342 100%
+        );
         border-right: 1px solid var(--hb-border);
     }
-    [data-testid="stSidebar"] * { color: var(--hb-text); }
-    h1, h2, h3, h4 { color: var(--hb-accent) !important; }
-    p, label, [data-testid="stCaptionContainer"] { color: var(--hb-text); }
-    hr { border-color: var(--hb-border) !important; }
+
+    [data-testid="stSidebar"] * {
+        color: var(--hb-text);
+    }
+
+    h1, h2, h3, h4 {
+        color: var(--hb-accent) !important;
+    }
+
+    p, label, [data-testid="stCaptionContainer"] {
+        color: var(--hb-text);
+    }
+
+    hr {
+        border-color: var(--hb-border) !important;
+    }
+
     div.stButton > button,
     div.stDownloadButton > button {
         background: var(--hb-accent);
@@ -152,6 +501,7 @@ st.markdown(
         min-height: 2.8rem;
         transition: all 0.15s ease;
     }
+
     div.stButton > button:hover,
     div.stDownloadButton > button:hover {
         background: var(--hb-accent-hover);
@@ -159,6 +509,7 @@ st.markdown(
         color: var(--hb-bg) !important;
         transform: translateY(-1px);
     }
+
     [data-testid="stFileUploaderDropzone"],
     [data-baseweb="select"] > div,
     [data-baseweb="input"] > div,
@@ -169,48 +520,60 @@ st.markdown(
         color: var(--hb-text) !important;
         border-radius: 10px;
     }
+
     [data-testid="stFileUploaderDropzone"] button {
         background: var(--hb-accent);
         color: var(--hb-bg);
         border: 0;
     }
+
     [data-testid="stFileUploaderFile"] {
-        background: rgba(7, 24, 45, 0.94) !important;
+        background: rgba(7,24,45,0.94) !important;
         border: 1px solid var(--hb-border) !important;
         border-radius: 10px !important;
         color: var(--hb-text) !important;
     }
+
     [data-testid="stFileUploaderFile"] *,
     [data-testid="stFileUploaderFileName"],
     [data-testid="stFileUploaderFile"] small {
         color: var(--hb-text) !important;
         opacity: 1 !important;
     }
+
     [data-testid="stFileUploaderFile"] button {
         background: transparent !important;
         border: 0 !important;
         color: var(--hb-accent) !important;
     }
+
     [data-testid="stFileUploaderFile"] button svg {
         fill: var(--hb-accent) !important;
         stroke: var(--hb-accent) !important;
     }
+
     [data-baseweb="tab-list"] {
         gap: 0.3rem;
         border-bottom: 1px solid var(--hb-border);
     }
+
     [data-baseweb="tab"] {
-        background: rgba(10, 35, 66, 0.55);
+        background: rgba(10,35,66,0.55);
         border-radius: 9px 9px 0 0;
         color: var(--hb-muted);
         padding-left: 1rem;
         padding-right: 1rem;
     }
+
     [data-baseweb="tab"][aria-selected="true"] {
         background: var(--hb-panel);
         color: var(--hb-accent);
     }
-    [data-baseweb="tab-highlight"] { background-color: var(--hb-accent); }
+
+    [data-baseweb="tab-highlight"] {
+        background-color: var(--hb-accent);
+    }
+
     [data-testid="stDataFrame"],
     [data-testid="stMetric"],
     [data-testid="stAlert"] {
@@ -218,65 +581,116 @@ st.markdown(
         border-radius: 12px;
         overflow: hidden;
     }
+
+    .metric-card {
+        background: var(--hb-panel);
+        border: 1px solid var(--hb-border);
+        padding: 14px 16px;
+        border-radius: 14px;
+        text-align: center;
+        color: white;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.25);
+        transition: transform 0.15s;
+        margin-bottom: 8px;
+    }
+
+    .metric-card:hover {
+        transform: scale(1.03);
+    }
+
+    .metric-number {
+        font-size: 24px;
+        font-weight: 700;
+        color: #7FDBFF;
+        margin-bottom: 4px;
+    }
+
+    .metric-label {
+        font-size: 12px;
+        color: #b8cfdf;
+        font-weight: 500;
+    }
+
+    .section-header {
+        font-size: 24px;
+        font-weight: 700;
+        color: #7FDBFF;
+        background: rgba(10,35,66,0.76);
+        border: 1px solid rgba(127,219,255,0.24);
+        border-radius: 12px;
+        padding: 12px 15px;
+        margin: 10px 0 14px;
+    }
+
+    .hero {
+        padding: 4rem 0 2rem;
+        text-align: center;
+    }
+
+    .hero h1 {
+        color: #7FDBFF;
+        font-size: clamp(2.4rem, 6vw, 4.6rem);
+        line-height: 1;
+        margin-bottom: 0.8rem;
+    }
+
+    .hero p {
+        color: #d7e8f5;
+        font-size: 1.15rem;
+        margin: 0 auto;
+        max-width: 680px;
+    }
+
+    .tool-card {
+        background: rgba(10,35,66,0.92);
+        border: 1px solid rgba(127,219,255,0.28);
+        border-radius: 18px;
+        min-height: 190px;
+        padding: 1.5rem;
+        box-shadow: 0 12px 35px rgba(0,0,0,0.28);
+    }
+
+    .tool-card h3 {
+        color: #7FDBFF;
+        margin-top: 0;
+    }
+
+    .tool-card p {
+        color: #d7e8f5;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 
+def section_header(text):
+    st.markdown(
+        f'<div class="section-header">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def metric_card(container, value, label):
+    container.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-number">{value}</div>
+            <div class="metric-label">{label}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =========================================================
+# HOME
+# =========================================================
 def go_to(page_name):
     st.session_state.active_page = page_name
 
 
 def render_home():
-    st.markdown(
-        """
-        <style>
-        [data-testid="stAppViewContainer"] {
-            background:
-                radial-gradient(circle at top right, rgba(127, 219, 255, 0.14), transparent 35%),
-                #07182d;
-            color: white;
-        }
-        [data-testid="stHeader"] { background: transparent; }
-        .hero { padding: 4rem 0 2rem; text-align: center; }
-        .hero h1 {
-            color: #7FDBFF;
-            font-size: clamp(2.4rem, 6vw, 4.6rem);
-            line-height: 1;
-            margin-bottom: 0.8rem;
-        }
-        .hero p {
-            color: #d7e8f5;
-            font-size: 1.15rem;
-            margin: 0 auto;
-            max-width: 680px;
-        }
-        .tool-card {
-            background: rgba(10, 35, 66, 0.92);
-            border: 1px solid rgba(127, 219, 255, 0.28);
-            border-radius: 18px;
-            min-height: 190px;
-            padding: 1.5rem;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.28);
-        }
-        .tool-card h3 { color: #7FDBFF; margin-top: 0; }
-        .tool-card p { color: #d7e8f5; }
-        div.stButton > button {
-            background: #7FDBFF;
-            border: none;
-            border-radius: 10px;
-            color: #07182d;
-            font-size: 1rem;
-            font-weight: 750;
-            min-height: 3.1rem;
-            width: 100%;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     st.markdown(
         """
         <div class="hero">
@@ -287,1294 +701,1132 @@ def render_home():
         unsafe_allow_html=True,
     )
 
-    basic_col, advanced_col, breakdown_col = st.columns(3, gap="large")
+    tools = [
+        (
+            "Basic Dashboard",
+            "Review tendencies, game situations, and play "
+            "predictions from uploaded Hudl data.",
+        ),
+        (
+            "Advanced Analytics",
+            "Explore explosive plays, success rates, formations, "
+            "concepts, and field position.",
+        ),
+        (
+            "Play Breakdown",
+            "Break down plays by formation and formations "
+            "by play selection.",
+        ),
+        (
+            "Formation Tendencies",
+            "Explore play direction, gap or zone scheme, launch "
+            "point, RB path, and play call by formation.",
+        ),
+    ]
 
-    with basic_col:
-        st.markdown(
-            """
-            <div class="tool-card">
-                <h3>Basic Dashboard</h3>
-                <p>
-                    Review tendencies, game situations, and play predictions
-                    from uploaded Hudl data.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button(
-            "Open Basic Dashboard",
-            use_container_width=True,
-            on_click=go_to,
-            args=("Basic Dashboard",),
-        )
+    # Two rows of cards keep all four dashboards easy to read.
+    for start in range(0, len(tools), 2):
+        card_columns = st.columns(2, gap="large")
 
-    with advanced_col:
-        st.markdown(
-            """
-            <div class="tool-card">
-                <h3>Advanced Analytics</h3>
-                <p>
-                    Explore explosive plays, success rates, formations,
-                    concepts, and field position.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button(
-            "Open Advanced Analytics",
-            use_container_width=True,
-            on_click=go_to,
-            args=("Advanced Analytics",),
-        )
+        for container, (name, description) in zip(
+            card_columns, tools[start:start + 2]
+        ):
+            with container:
+                st.markdown(
+                    f"""
+                    <div class="tool-card">
+                        <h3>{name}</h3>
+                        <p>{description}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.button(
+                    f"Open {name}",
+                    use_container_width=True,
+                    on_click=go_to,
+                    args=(name,),
+                    key=f"home_open_{name}",
+                )
 
-    with breakdown_col:
-        st.markdown(
-            """
-            <div class="tool-card">
-                <h3>Play Breakdown</h3>
-                <p>
-                    Break down plays by formation and formations by
-                    play selection.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button(
-            "Open Play Breakdown",
-            use_container_width=True,
-            on_click=go_to,
-            args=("Play Breakdown",),
-        )
+        st.write("")
 
 
+# =========================================================
+# BASIC DASHBOARD
+# =========================================================
 def render_basic_dashboard(uploaded_file):
-    import streamlit as st
-    import pandas as pd
-    import plotly.express as px
-    import numpy as np
-    from sklearn.metrics import accuracy_score
-    from sklearn.model_selection import train_test_split
-    from xgboost import XGBClassifier
-    
-    # -------------------------
-    # Page Config
-    # -------------------------
-    # Uncomment once if you need to force-clear old cached model behavior, then remove
-    # st.cache_data.clear()
-    # st.cache_resource.clear()
-    
-    # -------------------------
-    # Custom CSS
-    # -------------------------
-    st.markdown("""
-    <style>
-    .metric-card {
-        background: rgba(10, 35, 66, 0.92);
-        border: 1px solid rgba(127, 219, 255, 0.28);
-        padding: 14px 16px;
-        border-radius: 14px;
-        text-align: center;
-        color: white;
-        box-shadow: 0 10px 28px rgba(0,0,0,0.25);
-        transition: transform 0.15s;
-        margin-bottom: 8px;
-    }
-    .metric-card:hover {
-        transform: scale(1.03);
-    }
-    .metric-number {
-        font-size: 22px;
-        font-weight: 700;
-        color: #7FDBFF;
-        margin-bottom: 4px;
-    }
-    .metric-label {
-        font-size: 12px;
-        color: #b8cfdf;
-        font-weight: 500;
-    }
-    .section-header {
-        font-size: 24px;
-        font-weight: 700;
-        color: #7FDBFF;
-        background: rgba(10, 35, 66, 0.76);
-        border: 1px solid rgba(127, 219, 255, 0.24);
-        border-radius: 12px;
-        padding: 12px 15px;
-        margin: 10px 0 14px 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # -------------------------
-    # Sidebar Logo
-    # -------------------------
-    st.sidebar.markdown('<div style="text-align:center; margin-bottom:20px;">', unsafe_allow_html=True)
-    st.sidebar.image("logo_har-ber-high-school.png", width=150)
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
-    
-    # -------------------------
-    # Sidebar Upload
-    # -------------------------
+    sidebar_logo()
     st.sidebar.title("Har-Ber Dashboard")
-    # -------------------------
-    # Column Mapping
-    # -------------------------
-    COLUMN_MAP = {
-        "down": ["down", "dn"],
-        "distance": ["distance", "dist", "togo", "yards to go", "ydstogo"],
-        "hash": ["hash"],
-        "yardline": ["yardline", "yard ln", "spot", "ball on"],
-        "play_type": ["play_type", "play type", "playtype", "type"],
-        "result": ["result"],
-        "gain_loss": ["gain_loss", "gn/ls"],
-        "formation": ["formation", "off form"],
-        "concept": ["concept", "off play"],
-        "off_str": ["off str"],
-        "play_direction": ["play_direction", "play dir"],
-        "gap": ["gap"],
-        "pass_zone": ["pass zone"],
-        "def_front": ["def front"],
-        "coverage": ["coverage"],
-        "blitz": ["blitz"],
-        "quarter": ["quarter", "qtr"]
-    }
-    
-    # -------------------------
-    # Helper Functions
-    # -------------------------
-    def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df.columns = df.columns.str.lower().str.strip()
-    
-        rename_dict = {}
-        for standard_name, variants in COLUMN_MAP.items():
-            for col in df.columns:
-                if col in variants:
-                    rename_dict[col] = standard_name
-    
-        df = df.rename(columns=rename_dict)
-        return df
-    
-    
-    def ensure_numeric_columns(df: pd.DataFrame, cols: list) -> pd.DataFrame:
-        df = df.copy()
-        for col in cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        return df
-    
-    
-    def custom_yard_group(yardline):
-        if pd.isna(yardline):
-            return "Unknown"
-        if 0 >= yardline >= -9:
-            return "0 - -9"
-        elif -10 >= yardline >= -19:
-            return "-10 - -19"
-        elif -20 >= yardline >= -29:
-            return "-20 - -29"
-        elif -30 >= yardline >= -39:
-            return "-30 - -39"
-        elif -40 >= yardline >= -50:
-            return "-40 - -50"
-        elif 50 >= yardline >= 40:
-            return "+50 - +40"
-        elif 39 >= yardline >= 30:
-            return "+39 - +30"
-        elif 29 >= yardline >= 20:
-            return "+29 - +20"
-        elif 19 >= yardline >= 10:
-            return "+19 - +10"
-        elif 9 >= yardline >= 0:
-            return "+9 - 0"
-        else:
-            return "Other"
-    
-    
-    def add_prediction_features(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
-        df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
-        df["down"] = pd.to_numeric(df["down"], errors="coerce")
-    
-        df["distance_bucket"] = pd.cut(
-            df["distance"],
-            bins=[-1, 3, 7, 100],
-            labels=[0, 1, 2]
-        ).astype(float)
-    
-        df["field_zone"] = pd.cut(
-            df["yardline"],
-            bins=[-51, -20, 20, 51],
-            labels=[0, 1, 2]
-        ).astype(float)
-    
-        return df
-    
-    
-    @st.cache_data
-    def load_base_data() -> pd.DataFrame:
-        base = pd.read_csv("AllPlaysTrainData.csv")
-        base = standardize_columns(base)
-        base = ensure_numeric_columns(base, ["down", "distance", "yardline", "gain_loss", "quarter"])
-        return base
-    
-    
-    @st.cache_resource(show_spinner=False)
-    def train_model(base_df, weekly_df):
-        base_df = base_df.copy()
-        weekly_df = weekly_df.copy()
-    
-        base_df = standardize_columns(base_df)
-        weekly_df = standardize_columns(weekly_df)
-    
-        required_cols = ["down", "distance", "yardline", "play_type"]
-        for col in required_cols:
-            if col not in base_df.columns:
-                raise ValueError(f"Base data missing column: {col}")
-            if col not in weekly_df.columns:
-                raise ValueError(f"Weekly data missing column: {col}")
-    
-        base_df = add_prediction_features(base_df)
-        weekly_df = add_prediction_features(weekly_df)
-    
-        base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-        weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-    
-        if weekly_df.empty:
-            raise ValueError("Weekly dataset has no usable rows.")
-    
-        # Transfer-learning style weighting
-        base_df["weight"] = 1
-        weekly_df["weight"] = 6
-    
-        combined = pd.concat([base_df, weekly_df], ignore_index=True)
-    
-        features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
-    
-        # Remove rare classes BEFORE encoding
-        combined["play_type"] = combined["play_type"].astype(str).str.strip()
-        counts = combined["play_type"].value_counts()
-        valid_types = counts[counts >= 2].index
-        combined = combined[combined["play_type"].isin(valid_types)].copy()
-    
-        if combined["play_type"].nunique() < 2:
-            raise ValueError("Not enough play types to train model.")
-    
-        # Hard reset labels to contiguous integers
-        play_types = sorted(combined["play_type"].unique())
-        play_to_int = {p: i for i, p in enumerate(play_types)}
-        int_to_play = {i: p for p, i in play_to_int.items()}
-    
-        combined["y"] = combined["play_type"].map(play_to_int)
-    
-        X = combined[features].reset_index(drop=True)
-        y = combined["y"].reset_index(drop=True)
-        w = combined["weight"].reset_index(drop=True)
-    
-        X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-            X, y, w, test_size=0.2, random_state=42, stratify=y
+
+    if uploaded_file is None:
+        st.info(
+            "Upload a Hudl Excel file in the sidebar "
+            "to open the dashboard."
         )
-    
-        model = XGBClassifier(
-            n_estimators=400,
-            max_depth=6,
-            learning_rate=0.05,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            objective="multi:softprob",
-            eval_metric="mlogloss",
-            random_state=42
-        )
-    
-        model.fit(X_train, y_train, sample_weight=w_train)
-    
-        acc = accuracy_score(y_test, model.predict(X_test))
-    
-        return model, int_to_play, acc, X_test, y_test, features
-    
-    
-    # -------------------------
-    # Main App Logic
-    # -------------------------
-    if not uploaded_file:
-        st.info("Upload a Hudl Excel file in the sidebar to open the dashboard.")
-        st.stop()
-    
-    df = pd.read_excel(uploaded_file)
+        return
+
+    df = read_uploaded_excel(uploaded_file)
     df = standardize_columns(df)
     df = apply_global_play_settings(df)
-    df = ensure_numeric_columns(df, ["down", "distance", "yardline", "gain_loss", "quarter"])
-    
-    required_main_cols = ["down", "yardline"]
-    missing_main = [col for col in required_main_cols if col not in df.columns]
-    if missing_main:
-        st.error(f"Uploaded file is missing required columns: {', '.join(missing_main)}")
-        st.stop()
-    
-    df["yard_group"] = df["yardline"].apply(custom_yard_group)
-    
-    yard_order = [
-        "0 - -9", "-10 - -19", "-20 - -29", "-30 - -39", "-40 - -50",
-        "+50 - +40", "+39 - +30", "+29 - +20", "+19 - +10", "+9 - 0"
+    df = ensure_numeric_columns(
+        df,
+        ["down", "distance", "yardline", "gain_loss", "quarter"],
+    )
+
+    missing = [
+        column for column in ["down", "yardline"]
+        if column not in df.columns
     ]
-    
-    # -------------------------
-    # Sidebar Filters
-    # -------------------------
+    if missing:
+        st.error(
+            "Uploaded file is missing required columns: "
+            + ", ".join(missing)
+        )
+        return
+
+    df["yard_group"] = df["yardline"].apply(
+        custom_yard_group
+    )
+
+    yard_order = [
+        "0 - -9", "-10 - -19", "-20 - -29",
+        "-30 - -39", "-40 - -50", "+50 - +40",
+        "+39 - +30", "+29 - +20", "+19 - +10", "+9 - 0",
+    ]
+
     st.sidebar.header("Filters")
-    
+
     down_choices = sorted(df["down"].dropna().unique())
-    if len(down_choices) == 0:
+    if not down_choices:
         st.error("No valid down values found in uploaded file.")
-        st.stop()
-    
-    down_selected = st.sidebar.selectbox("Down", down_choices)
-    
+        return
+
+    down_selected = st.sidebar.selectbox(
+        "Down", down_choices, key="basic_filter_down"
+    )
+
     df_down = df[df["down"] == down_selected]
-    yard_choices = [yg for yg in yard_order if yg in df_down["yard_group"].unique()]
-    
-    if len(yard_choices) == 0:
-        st.error("No valid yard groups found for the selected down.")
-        st.stop()
-    
-    yard_choice = st.sidebar.selectbox("Yard Group", yard_choices)
-    
-    selected = df_down[df_down["yard_group"] == yard_choice]
-    if selected.empty:
-        st.warning("No plays for this selection.")
-        st.stop()
-    
-    # -------------------------
-    # Tabs
-    # -------------------------
+
+    yard_choices = [
+        group for group in yard_order
+        if group in df_down["yard_group"].unique()
+    ]
+    if not yard_choices:
+        st.error(
+            "No valid yard groups found for the selected down."
+        )
+        return
+
+    yard_choice = st.sidebar.selectbox(
+        "Yard Group", yard_choices, key="basic_filter_yard"
+    )
+
+    selected = df_down[
+        df_down["yard_group"] == yard_choice
+    ]
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Overall Snapshot",
         "Filtered by Down/Yardline",
         "Success Heatmaps",
         "Concept Effectiveness",
-        "Play Prediction"
+        "Play Prediction",
     ])
-    
-    # -------------------------
-    # Tab 1 - Overall Snapshot
-    # -------------------------
-    with tab1:
-        st.markdown("<div class='section-header'>Overall Snapshot</div>", unsafe_allow_html=True)
-    
-        if "gain_loss" in df.columns and not df["gain_loss"].dropna().empty:
-            avg_gain_all = round(df["gain_loss"].mean(), 1)
-            max_gain_all = df["gain_loss"].max()
-            min_gain_all = df["gain_loss"].min()
-    
+
+    def render_snapshot(data, title, key_prefix):
+        section_header(title)
+
+        if (
+            "gain_loss" in data.columns
+            and data["gain_loss"].notna().any()
+        ):
             c1, c2, c3 = st.columns(3)
-            c1.markdown(
-                f'<div class="metric-card"><div class="metric-number">{avg_gain_all}</div><div class="metric-label">Average Gain</div></div>',
-                unsafe_allow_html=True
+            metric_card(
+                c1, f"{data['gain_loss'].mean():.1f}",
+                "Average Gain",
             )
-            c2.markdown(
-                f'<div class="metric-card"><div class="metric-number">{max_gain_all}</div><div class="metric-label">Max Gain</div></div>',
-                unsafe_allow_html=True
+            metric_card(
+                c2, data["gain_loss"].max(), "Max Gain"
             )
-            c3.markdown(
-                f'<div class="metric-card"><div class="metric-number">{min_gain_all}</div><div class="metric-label">Min Gain</div></div>',
-                unsafe_allow_html=True
+            metric_card(
+                c3, data["gain_loss"].min(), "Min Gain"
             )
-    
-            gain_summary_all = (
-                df.groupby("gain_loss")
-                .size()
-                .reset_index(name="plays")
-                .sort_values("gain_loss")
-            )
-    
-            gain_fig_all = px.bar(
-                gain_summary_all,
-                x="gain_loss",
-                y="plays",
-                labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
-                title="Gain / Loss Distribution",
-                template="plotly_dark",
-                color_discrete_sequence=["#7FDBFF"]
-            )
-        else:
-            gain_fig_all = None
-    
-        if {"concept", "play_direction"}.issubset(df.columns):
-            top_concepts_all = (
-                df.groupby(["concept", "play_direction"])
-                .size()
-                .reset_index(name="count")
-                .sort_values("count", ascending=False)
-                .head(8)
-            )
-    
-            concept_fig_all = px.bar(
-                top_concepts_all,
-                x="count",
-                y="concept",
-                color="play_direction",
-                orientation="h",
-                title="Most Frequent Concepts by Play Direction",
-                template="plotly_dark",
-                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"]
-            )
-        else:
-            concept_fig_all = None
-    
-        r1c1, r1c2 = st.columns(2)
-        if gain_fig_all is not None:
-            r1c1.plotly_chart(themed_chart(gain_fig_all), use_container_width=True, theme=None)
-        if concept_fig_all is not None:
-            r1c2.plotly_chart(themed_chart(concept_fig_all), use_container_width=True, theme=None)
-    
-        st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
-    
-        r2c1, r2c2 = st.columns(2)
-    
-        if "play_type" in df.columns:
-            play_type_summary_all = df["play_type"].value_counts().reset_index()
-            play_type_summary_all.columns = ["play_type", "count"]
-    
-            play_type_fig_all = px.pie(
-                play_type_summary_all,
-                names="play_type",
-                values="count",
-                title="Play Type %",
-                template="plotly_dark"
-            )
-            r2c1.plotly_chart(themed_chart(play_type_fig_all), use_container_width=True, theme=None)
-    
-        if "concept" in df.columns:
-            concept_summary_all = df["concept"].value_counts().head(6).reset_index()
-            concept_summary_all.columns = ["concept", "count"]
-    
-            concept_pie_fig_all = px.pie(
-                concept_summary_all,
-                names="concept",
-                values="count",
-                title="Most Frequent Concepts",
-                color_discrete_sequence=px.colors.sequential.Blues,
-                template="plotly_dark"
-            )
-            r2c2.plotly_chart(themed_chart(concept_pie_fig_all), use_container_width=True, theme=None)
-    
-    # -------------------------
-    # Tab 2 - Filtered Snapshot
-    # -------------------------
-    with tab2:
-        st.markdown("<div class='section-header'>Filtered by Down / Yardline</div>", unsafe_allow_html=True)
-    
-        if "gain_loss" in selected.columns and not selected["gain_loss"].dropna().empty:
-            avg_gain = round(selected["gain_loss"].mean(), 1)
-            max_gain = selected["gain_loss"].max()
-            min_gain = selected["gain_loss"].min()
-    
-            c1, c2, c3 = st.columns(3)
-            c1.markdown(
-                f'<div class="metric-card"><div class="metric-number">{avg_gain}</div><div class="metric-label">Average Gain</div></div>',
-                unsafe_allow_html=True
-            )
-            c2.markdown(
-                f'<div class="metric-card"><div class="metric-number">{max_gain}</div><div class="metric-label">Max Gain</div></div>',
-                unsafe_allow_html=True
-            )
-            c3.markdown(
-                f'<div class="metric-card"><div class="metric-number">{min_gain}</div><div class="metric-label">Min Gain</div></div>',
-                unsafe_allow_html=True
-            )
-    
+
             gain_summary = (
-                selected.groupby("gain_loss")
+                data.groupby("gain_loss")
                 .size()
                 .reset_index(name="plays")
                 .sort_values("gain_loss")
             )
-    
             gain_fig = px.bar(
                 gain_summary,
                 x="gain_loss",
                 y="plays",
-                labels={"gain_loss": "Yards Gained", "plays": "Number of Plays"},
+                labels={
+                    "gain_loss": "Yards Gained",
+                    "plays": "Number of Plays",
+                },
                 title="Gain / Loss Distribution",
-                template="plotly_dark",
-                color_discrete_sequence=["#7FDBFF"]
+                color_discrete_sequence=["#7FDBFF"],
             )
         else:
             gain_fig = None
-    
-        if {"concept", "play_direction"}.issubset(selected.columns):
-            top_concepts = (
-                selected.groupby(["concept", "play_direction"])
+
+        if {"concept", "play_direction"}.issubset(data.columns):
+            concepts = (
+                data.groupby(["concept", "play_direction"])
                 .size()
                 .reset_index(name="count")
                 .sort_values("count", ascending=False)
                 .head(8)
             )
-    
             concept_fig = px.bar(
-                top_concepts,
+                concepts,
                 x="count",
                 y="concept",
                 color="play_direction",
                 orientation="h",
                 title="Most Frequent Concepts by Play Direction",
-                template="plotly_dark",
-                color_discrete_sequence=["#7FDBFF", "#0A2342", "#AAAAAA"]
+                color_discrete_sequence=[
+                    "#7FDBFF", "#0A2342", "#AAAAAA"
+                ],
             )
         else:
             concept_fig = None
-    
-        r1c1, r1c2 = st.columns(2)
-        if gain_fig is not None:
-            r1c1.plotly_chart(themed_chart(gain_fig), use_container_width=True, theme=None)
-        if concept_fig is not None:
-            r1c2.plotly_chart(themed_chart(concept_fig), use_container_width=True, theme=None)
-    
-        st.markdown('<div class="section-header">Play Type & Concept Distribution</div>', unsafe_allow_html=True)
-    
-        r2c1, r2c2 = st.columns(2)
-    
-        if "play_type" in selected.columns:
-            play_type_summary = selected["play_type"].value_counts().reset_index()
-            play_type_summary.columns = ["play_type", "count"]
-    
-            play_type_fig = px.pie(
-                play_type_summary,
-                names="play_type",
-                values="count",
-                title="Play Type %",
-                template="plotly_dark"
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if gain_fig is not None:
+                show_chart(
+                    gain_fig, key=f"{key_prefix}_gain"
+                )
+        with c2:
+            if concept_fig is not None:
+                show_chart(
+                    concept_fig, key=f"{key_prefix}_direction"
+                )
+
+        section_header("Play Type & Concept Distribution")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            if "play_type" in data.columns:
+                summary = (
+                    data["play_type"].value_counts()
+                    .rename_axis("play_type")
+                    .reset_index(name="count")
+                )
+                fig = px.pie(
+                    summary,
+                    names="play_type",
+                    values="count",
+                    title="Play Type %",
+                )
+                show_chart(
+                    fig, key=f"{key_prefix}_play_type"
+                )
+
+        with c2:
+            if "concept" in data.columns:
+                summary = (
+                    data["concept"].value_counts()
+                    .head(6)
+                    .rename_axis("concept")
+                    .reset_index(name="count")
+                )
+                fig = px.pie(
+                    summary,
+                    names="concept",
+                    values="count",
+                    title="Most Frequent Concepts",
+                    color_discrete_sequence=(
+                        px.colors.sequential.Blues
+                    ),
+                )
+                show_chart(
+                    fig, key=f"{key_prefix}_concept_pie"
+                )
+
+    with tab1:
+        render_snapshot(
+            df, "Overall Snapshot", "basic_overall"
+        )
+
+    with tab2:
+        if selected.empty:
+            st.warning("No plays for this selection.")
+        else:
+            render_snapshot(
+                selected,
+                "Filtered by Down / Yardline",
+                "basic_filtered",
             )
-            r2c1.plotly_chart(themed_chart(play_type_fig), use_container_width=True, theme=None)
-    
-        if "concept" in selected.columns:
-            concept_summary = selected["concept"].value_counts().head(6).reset_index()
-            concept_summary.columns = ["concept", "count"]
-    
-            concept_pie_fig = px.pie(
-                concept_summary,
-                names="concept",
-                values="count",
-                title="Most Frequent Concepts",
-                color_discrete_sequence=px.colors.sequential.Blues,
-                template="plotly_dark"
+            section_header("Raw Play Data")
+            st.dataframe(
+                selected, use_container_width=True
             )
-            r2c2.plotly_chart(themed_chart(concept_pie_fig), use_container_width=True, theme=None)
-    
-        st.markdown('<div class="section-header">Raw Play Data</div>', unsafe_allow_html=True)
-        st.dataframe(selected, use_container_width=True)
-    
-    # -------------------------
-    # Tab 3 - Success Heatmap
-    # -------------------------
+
     with tab3:
-        st.markdown("<div class='section-header'>Play Success Heatmap</div>", unsafe_allow_html=True)
-    
+        section_header("Play Success Heatmap")
+
         with st.expander("How to read this chart"):
-            st.write("""
-            This heatmap shows the success rate of plays by down and field position.
-    
-            - Darker blue = higher success rate
-            - Success is defined as gaining 4 or more yards
-            """)
-    
+            st.write(
+                "This heatmap shows success rate by down and "
+                "field position. Success means gaining 4 or "
+                "more yards. Use the color scale to compare rates."
+            )
+
         if "gain_loss" not in df.columns:
             st.warning("No gain/loss data found.")
         else:
-            df["success"] = df["gain_loss"] >= 4
-    
-            heatmap_df = (
-                df.groupby(["down", "yard_group"])
+            success_data = df.dropna(
+                subset=["gain_loss"]
+            ).copy()
+            success_data["success"] = (
+                success_data["gain_loss"] >= 4
+            )
+
+            summary = (
+                success_data.groupby(["down", "yard_group"])
                 .agg(
                     success_rate=("success", "mean"),
-                    num_plays=("success", "count")
+                    num_plays=("success", "size"),
                 )
                 .reset_index()
             )
-    
-            if not heatmap_df.empty:
-                success_pivot = heatmap_df.pivot(index="down", columns="yard_group", values="success_rate")
-                plays_pivot = heatmap_df.pivot(index="down", columns="yard_group", values="num_plays")
-    
-                success_pivot = success_pivot.reindex(columns=[yg for yg in yard_order if yg in success_pivot.columns])
-                plays_pivot = plays_pivot.reindex(columns=[yg for yg in yard_order if yg in plays_pivot.columns])
-    
-                heatmap_fig = px.imshow(
-                    success_pivot,
+
+            if summary.empty:
+                st.info("Not enough data to display heatmap.")
+            else:
+                rates = summary.pivot(
+                    index="down",
+                    columns="yard_group",
+                    values="success_rate",
+                )
+                counts = summary.pivot(
+                    index="down",
+                    columns="yard_group",
+                    values="num_plays",
+                )
+                existing_order = [
+                    group for group in yard_order
+                    if group in rates.columns
+                ]
+                rates = rates.reindex(columns=existing_order)
+                counts = counts.reindex(
+                    index=rates.index, columns=existing_order
+                )
+
+                fig = px.imshow(
+                    rates,
                     text_auto=".0%",
                     aspect="auto",
-                    labels=dict(x="Yard Group", y="Down", color="Success Rate"),
-                    color_continuous_scale="Blues"
+                    labels={
+                        "x": "Yard Group",
+                        "y": "Down",
+                        "color": "Success Rate",
+                    },
+                    color_continuous_scale="Blues",
                 )
-    
-                heatmap_fig.update_traces(
-                    hovertemplate="<b>Down:</b> %{y}<br>"
-                                  "<b>Yard Group:</b> %{x}<br>"
-                                  "<b>Success Rate:</b> %{z:.0%}<br>"
-                                  "<b>Number of Plays:</b> %{customdata}",
-                    customdata=plays_pivot.values
+                fig.update_traces(
+                    customdata=counts.values,
+                    hovertemplate=(
+                        "<b>Down:</b> %{y}<br>"
+                        "<b>Yard Group:</b> %{x}<br>"
+                        "<b>Success Rate:</b> %{z:.0%}<br>"
+                        "<b>Number of Plays:</b> %{customdata}"
+                        "<extra></extra>"
+                    ),
                 )
-    
-                st.plotly_chart(themed_chart(heatmap_fig), use_container_width=True, theme=None)
-            else:
-                st.info("Not enough data to display heatmap.")
-    
-    # -------------------------
-    # Tab 4 - Concept Effectiveness
-    # -------------------------
+                show_chart(fig, key="basic_success_heatmap")
+
     with tab4:
-        st.markdown("<div class='section-header'>Concept Effectiveness</div>", unsafe_allow_html=True)
-    
+        section_header("Concept Effectiveness")
+
         with st.expander("How to read this chart"):
-            st.write("""
-            This chart evaluates offensive concepts using three metrics:
-    
-            X-axis: Success Rate
-            Y-axis: Average yards gained
-            Bubble Size: Number of plays
-            """)
-    
+            st.write(
+                "X-axis: Success Rate. "
+                "Y-axis: Average yards gained. "
+                "Bubble size: Number of plays."
+            )
+
         if not {"concept", "gain_loss"}.issubset(df.columns):
-            st.warning("Need concept and gain/loss columns for this chart.")
+            st.warning(
+                "Need concept and gain/loss columns "
+                "for this chart."
+            )
         else:
             concept_stats = (
-                df.groupby("concept")
+                df.dropna(subset=["gain_loss"])
+                .groupby("concept")
                 .agg(
                     avg_gain=("gain_loss", "mean"),
-                    success_rate=("gain_loss", lambda x: (x >= 4).mean()),
-                    plays=("gain_loss", "count")
+                    success_rate=(
+                        "gain_loss",
+                        lambda values: (values >= 4).mean(),
+                    ),
+                    plays=("gain_loss", "size"),
                 )
                 .reset_index()
                 .sort_values("avg_gain", ascending=False)
             )
-    
-            bubble = px.scatter(
-                concept_stats,
-                x="success_rate",
-                y="avg_gain",
-                size="plays",
-                hover_name="concept",
-                title="Concept Effectiveness",
-                template="plotly_dark"
-            )
-    
-            st.plotly_chart(themed_chart(bubble), use_container_width=True, theme=None)
-            st.dataframe(concept_stats, use_container_width=True)
-    
-    # -------------------------
-    # Tab 5 - Play Prediction
-    # -------------------------
-    with tab5:
-        st.markdown("<div class='section-header'>ELITE Play Prediction System</div>", unsafe_allow_html=True)
-    
-        # -------------------------
-        # Feature Engineering
-        # -------------------------
-        def add_prediction_features(df):
-            df = df.copy()
-            df["distance"] = pd.to_numeric(df["distance"], errors="coerce")
-            df["yardline"] = pd.to_numeric(df["yardline"], errors="coerce")
-            df["down"] = pd.to_numeric(df["down"], errors="coerce")
-    
-            df["distance_bucket"] = pd.cut(
-                df["distance"],
-                bins=[-1, 3, 7, 100],
-                labels=[0, 1, 2]
-            ).astype(float)
-    
-            df["field_zone"] = pd.cut(
-                df["yardline"],
-                bins=[-51, -20, 20, 51],
-                labels=[0, 1, 2]
-            ).astype(float)
-    
-            return df
-    
-        # -------------------------
-        # Load Base Dataset
-        # -------------------------
-        @st.cache_data
-        def load_base_data():
-            base = pd.read_csv("AllPlaysTrainData.csv")
-            base = standardize_columns(base)
-            base = ensure_numeric_columns(base, ["down", "distance", "yardline", "gain_loss", "quarter"])
-            return base
-    
-        # -------------------------
-        # Train Model
-        # -------------------------
-        @st.cache_resource(show_spinner=False)
-        def train_model(base_df, weekly_df):
-            base_df = base_df.copy()
-            weekly_df = weekly_df.copy()
-    
-            base_df = standardize_columns(base_df)
-            weekly_df = standardize_columns(weekly_df)
-    
-            required_cols = ["down", "distance", "yardline", "play_type"]
-            for col in required_cols:
-                if col not in base_df.columns:
-                    raise ValueError(f"Base data missing column: {col}")
-                if col not in weekly_df.columns:
-                    raise ValueError(f"Weekly data missing column: {col}")
-    
-            base_df = add_prediction_features(base_df)
-            weekly_df = add_prediction_features(weekly_df)
-    
-            base_df = base_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-            weekly_df = weekly_df.dropna(subset=["down", "distance", "yardline", "play_type", "distance_bucket", "field_zone"])
-    
-            if weekly_df.empty:
-                raise ValueError("Weekly dataset has no usable rows.")
-    
-            # Transfer-learning style weighting
-            base_df["weight"] = 1
-            weekly_df["weight"] = 6
-    
-            combined = pd.concat([base_df, weekly_df], ignore_index=True)
-    
-            features = ["down", "distance", "yardline", "distance_bucket", "field_zone"]
-    
-            # Clean play types
-            combined["play_type"] = combined["play_type"].astype(str).str.strip()
-            combined = combined[combined["play_type"] != ""].copy()
-    
-            # Remove rare play types before encoding
-            counts = combined["play_type"].value_counts()
-            valid_types = counts[counts >= 2].index
-            combined = combined[combined["play_type"].isin(valid_types)].copy()
-    
-            n_classes = combined["play_type"].nunique()
-            if n_classes < 2:
-                raise ValueError("Not enough play types with at least 2 samples to train the model.")
-    
-            # Hard reset labels to contiguous integers
-            play_types = sorted(combined["play_type"].unique())
-            play_to_int = {p: i for i, p in enumerate(play_types)}
-            int_to_play = {i: p for p, i in play_to_int.items()}
-    
-            combined["y"] = combined["play_type"].map(play_to_int).astype(int)
-    
-            X = combined[features].reset_index(drop=True)
-            y = combined["y"].reset_index(drop=True)
-            w = combined["weight"].reset_index(drop=True)
-    
-            # Safety check
-            if len(X) == 0 or len(y) == 0:
-                raise ValueError("No usable rows remain after cleaning.")
-    
-            if y.nunique() < 2:
-                raise ValueError("Training data collapsed to one class after cleaning.")
-    
-            X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-                X, y, w, test_size=0.2, random_state=42, stratify=y
-            )
-    
-            if y_train.nunique() < 2:
-                raise ValueError("Training split contains fewer than 2 classes.")
-    
-            # Binary vs multi-class handling
-            if n_classes == 2:
-                model = XGBClassifier(
-                    n_estimators=400,
-                    max_depth=6,
-                    learning_rate=0.05,
-                    subsample=0.9,
-                    colsample_bytree=0.9,
-                    objective="binary:logistic",
-                    eval_metric="logloss",
-                    random_state=42
-                )
+
+            if concept_stats.empty:
+                st.info("No usable concept gain data found.")
             else:
-                model = XGBClassifier(
-                    n_estimators=400,
-                    max_depth=6,
-                    learning_rate=0.05,
-                    subsample=0.9,
-                    colsample_bytree=0.9,
-                    objective="multi:softprob",
-                    num_class=n_classes,
-                    eval_metric="mlogloss",
-                    random_state=42
+                fig = px.scatter(
+                    concept_stats,
+                    x="success_rate",
+                    y="avg_gain",
+                    size="plays",
+                    hover_name="concept",
+                    title="Concept Effectiveness",
                 )
-    
-            model.fit(X_train, y_train, sample_weight=w_train)
-    
-            preds = model.predict(X_test)
-            acc = accuracy_score(y_test, preds)
-    
-            return model, int_to_play, acc, X_test, y_test, features, n_classes
-    
-        # -------------------------
-        # Load Data
-        # -------------------------
-        try:
-            base_df = load_base_data()
-        except Exception as e:
-            st.error(f"Error loading AllPlaysTrainData.csv: {e}")
-            st.stop()
-    
-        weekly_df = df.copy()
-    
-        try:
-            model, int_to_play, accuracy, X_test, y_test, features, n_classes = train_model(base_df, weekly_df)
-        except Exception as e:
-            st.error(f"Model training failed: {e}")
-            st.stop()
-    
-        st.success(f"Overall Model Accuracy: {accuracy:.2%}")
-    
-        # -------------------------
-        # User Inputs
-        # -------------------------
-        st.markdown("### Predict Play")
-    
-        col1, col2, col3 = st.columns(3)
-    
-        with col1:
-            pred_down = st.selectbox("Down", [1, 2, 3, 4])
-    
-        with col2:
-            pred_dist = st.number_input("Distance", min_value=1, max_value=30, value=5)
-    
-        with col3:
-            pred_yard = st.number_input("Yardline", min_value=-50, max_value=50, value=0)
-    
-        input_df = pd.DataFrame([{
-            "down": pred_down,
-            "distance": pred_dist,
-            "yardline": pred_yard
-        }])
-    
-        input_df = add_prediction_features(input_df)
-        input_X = input_df[features]
-    
-        # Predict probabilities
-        probs = model.predict_proba(input_X)[0]
-    
-        # Binary models sometimes return only one probability column depending on wrapper behavior,
-        # so normalize to a full class probability vector
-        if n_classes == 2 and len(probs) == 1:
-            probs = np.array([1 - probs[0], probs[0]])
-    
-        pred_class = int(np.argmax(probs))
-        predicted_play = int_to_play[pred_class]
-        prediction_confidence = float(np.max(probs))
-    
-        # Situation-specific accuracy
-        mask = (
-            (X_test["down"] == pred_down) &
-            (abs(X_test["distance"] - pred_dist) <= 2) &
-            (abs(X_test["yardline"] - pred_yard) <= 10)
-        )
-    
-        similar_X = X_test[mask]
-        similar_y = y_test[mask]
-    
-        if len(similar_X) >= 10:
-            situation_accuracy = accuracy_score(similar_y, model.predict(similar_X))
-        else:
-            situation_accuracy = None
-    
-        # -------------------------
-        # Display Results
-        # -------------------------
-        st.markdown("### Results")
-    
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Predicted Play", predicted_play)
-        c2.metric("Confidence", f"{prediction_confidence:.1%}")
-        c3.metric("Model Accuracy", f"{accuracy:.1%}")
-    
-        if situation_accuracy is not None:
-            st.metric("Situation Accuracy", f"{situation_accuracy:.1%}")
-        else:
-            st.info("Not enough similar plays for situation accuracy.")
-    
-        # -------------------------
-        # Top 3 Plays
-        # -------------------------
-        st.markdown("### Top 3 Plays")
-    
-        top_idx = np.argsort(probs)[::-1][:3]
-        for i in top_idx:
-            if i in int_to_play:
-                st.write(f"{int_to_play[i]} — {probs[i]:.1%}")
-    
-        # -------------------------
-        # Probability Table
-        # -------------------------
-        st.markdown("### Full Probabilities")
-    
-        prob_rows = []
-        for i in range(len(probs)):
-            if i in int_to_play:
-                prob_rows.append({
-                    "Play": int_to_play[i],
-                    "Probability": probs[i]
-                })
-    
-        prob_df = pd.DataFrame(prob_rows).sort_values("Probability", ascending=False)
-        prob_df["Probability"] = prob_df["Probability"].map(lambda x: f"{x:.2%}")
-        st.dataframe(prob_df, use_container_width=True)
-    
-        # -------------------------
-        # Insight
-        # -------------------------
-        st.markdown("### Situation Insight")
-    
-        if pred_down == 3 and pred_dist >= 7:
-            st.info("Likely passing tendency: long-yardage third down.")
-        elif pred_down == 1 and pred_dist <= 3:
-            st.info("Likely run tendency: short-yardage first down.")
-        elif pred_down == 4:
-            st.info("Fourth down can be more volatile because of smaller sample sizes.")
-    
-    
-    
+                show_chart(fig, key="basic_concept_bubble")
+                st.dataframe(
+                    concept_stats, use_container_width=True
+                )
+
+    with tab5:
+        render_play_prediction(df)
 
 
-def render_advanced_analytics(uploaded_file):
-    import streamlit as st
-    import pandas as pd
-    import numpy as np
-    import plotly.express as px
-    from sklearn.ensemble import RandomForestClassifier
-    
-    # -------------------------
-    # Page Config
-    # -------------------------
-    # -------------------------
-    # Custom CSS (Dark Mode + Cards)
-    # -------------------------
-    st.markdown("""
-    <style>
-    h1, h2, h3 { color: #7FDBFF; }
-    .section-header {
-        background: rgba(10, 35, 66, 0.76);
-        border: 1px solid rgba(127, 219, 255, 0.24);
-        padding: 12px 15px;
-        border-radius: 12px;
-        color: #7FDBFF;
-        font-weight: bold;
-        margin-top: 20px;
-    }
-    .metric-card {
-        background: rgba(10, 35, 66, 0.92);
-        border: 1px solid rgba(127, 219, 255, 0.28);
-        padding: 15px;
-        border-radius: 14px;
-        text-align:center;
-        color:white;
-        box-shadow:0 10px 28px rgba(0,0,0,0.25);
-        transition: transform 0.2s;
-    }
-    .metric-card:hover { transform: scale(1.05); }
-    .metric-number { font-size:24px; font-weight:bold; color:#7FDBFF; }
-    .metric-label { font-size:12px; color:#b8cfdf; }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # -------------------------
-    # Sidebar Logo
-    # -------------------------
-    st.sidebar.markdown('<div style="text-align:center; margin-bottom:20px;">', unsafe_allow_html=True)
+def render_play_prediction(df):
+    from sklearn.metrics import accuracy_score
+
+    section_header("ELITE Play Prediction System")
+
     try:
-        st.sidebar.image("logo_har-ber-high-school.png", width=150)
-    except:
-        pass
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
-    
-    # -------------------------
-    # Sidebar Upload
-    # -------------------------
-    st.sidebar.title("Har‑Ber Advanced Analytics")
-    if uploaded_file:
-        df = pd.read_excel(uploaded_file)
-        df.columns = df.columns.str.lower().str.strip()
-    
-        # -------------------------
-        # Column Renaming
-        # -------------------------
-        COLUMN_MAP = {
-            "down": ["down", "dn"],
-            "distance": ["dist", "togo", "yards to go", "ydstogo"],
-            "yardline": ["yard ln", "spot", "ball on"],
-            "concept": ["off play", "concept"],
-            "play_type": ["play type", "playtype", "type"],
-            "play_direction": ["play dir"],
-            "gain_loss": ["gn/ls", "gain_loss", "gain loss"],
-            "formation": ["off form"]
-        }
-        rename_dict = {}
-        for s, v in COLUMN_MAP.items():
-            for col in df.columns:
-                if col in v:
-                    rename_dict[col] = s
-        df = df.rename(columns=rename_dict)
-        df = apply_global_play_settings(df)
-    
-        if 'gain_loss' in df.columns:
-            df['gain_loss'] = pd.to_numeric(df['gain_loss'], errors='coerce').fillna(0)
-        else:
-            st.error("No 'gain_loss' column found in uploaded file.")
-            st.stop()
-    
-        # -------------------------
-        # Custom Yard Groups
-        # -------------------------
-        def custom_yard_group(yardline):
-            if pd.isna(yardline): return "Unknown"
-            yardline = float(yardline)
-            if 0 <= yardline <= 9: return "0 - 9"
-            elif 10 <= yardline <= 19: return "10 - 19"
-            elif 20 <= yardline <= 29: return "20 - 29"
-            elif 30 <= yardline <= 39: return "30 - 39"
-            elif 40 <= yardline <= 50: return "40 - 50"
-            elif -9 <= yardline <= 0: return "-9 - 0"
-            elif -19 <= yardline <= -10: return "-19 - -10"
-            elif -29 <= yardline <= -20: return "-29 - -20"
-            elif -39 <= yardline <= -30: return "-39 - -30"
-            elif -50 <= yardline <= -40: return "-50 - -40"
-            else: return "Other"
-    
-        if 'yardline' in df.columns:
-            df["yard_group"] = df["yardline"].apply(custom_yard_group)
-        else:
-            df["yard_group"] = "Unknown"
-    
-        yard_order = ["-50 - -40", "-39 - -30", "-29 - -20", "-19 - -10", "-9 - 0", "0 - 9", "10 - 19", "20 - 29", "30 - 39", "40 - 50"]
-    
-        # -------------------------
-        # Tabs
-        # -------------------------
-        tabs = st.tabs(["Explosive & Success Metrics", "Gain/Loss Breakdown", "Concept by Yardline", "Formation Breakdown", "Concept Breakdown"])
-        tab1, tab2, tab3, tab4, tab5 = tabs
-    
-        # -------------------------
-        # TAB 1: Explosive & Success Metrics
-        # -------------------------
-        with tab1:
-            st.markdown('<div class="section-header">Explosive Play & Success Metrics</div>', unsafe_allow_html=True)
-            st.markdown("**Definitions:** \n- **Explosive Plays:** Runs ≥ 10 yards, Passes ≥ 20 yards  \n- **Success:** Plays gaining ≥ 4 yards")
-        
-            df['explosive'] = df.apply(lambda row: row['gain_loss'] >= 10 if row.get('play_type','') == 'Run' else row['gain_loss'] >= 20, axis=1)
-            df['success'] = df['gain_loss'] >= 4
-        
-            total_plays = len(df)
-            explosive_runs_pct = df[df['play_type'] == 'Run']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
-            explosive_pass_pct = df[df['play_type'] == 'Pass']['explosive'].mean() * 100 if 'play_type' in df.columns else 0
-            success_pct = df['success'].mean() * 100
-        
-            m1, m2, m3, m4 = st.columns(4)
-            m1.markdown(f'<div class="metric-card"><div class="metric-number">{total_plays}</div><div class="metric-label">Total Plays</div></div>', unsafe_allow_html=True)
-            m2.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_runs_pct:.1f}%</div><div class="metric-label">Explosive Runs</div></div>', unsafe_allow_html=True)
-            m3.markdown(f'<div class="metric-card"><div class="metric-number">{explosive_pass_pct:.1f}%</div><div class="metric-label">Explosive Passes</div></div>', unsafe_allow_html=True)
-            m4.markdown(f'<div class="metric-card"><div class="metric-number">{success_pct:.1f}%</div><div class="metric-label">Overall Success %</div></div>', unsafe_allow_html=True)
-        
-            down_order = sorted(df['down'].dropna().unique()) if 'down' in df.columns else []
-        
-            def plot_heatmap_hover(df_heat, val_col, title):
-                summary = df_heat.groupby(['down','yard_group']).agg(num_plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), rate=(val_col,'mean')).reset_index()
-                z_values = summary.pivot(index='down', columns='yard_group', values='rate').fillna(0) * 100
-                piv_plays = summary.pivot(index='down', columns='yard_group', values='num_plays').fillna(0)
-                piv_gain = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
-                customdata_array = np.stack([piv_plays.values, piv_gain.values], axis=-1)
-        
-                fig = px.imshow(z_values, text_auto=".1f", aspect="auto", labels={'x':'Yard Group','y':'Down','color':title}, color_continuous_scale='Blues', template='plotly_dark', title=title)
-                fig.update_traces(hovertemplate="<b>Down:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Rate:</b> %{z:.1f}%<br><b>Plays:</b> %{customdata[0]:.0f}<br><b>Avg Gain:</b> %{customdata[1]:.1f}y<extra></extra>", customdata=customdata_array)
-                if down_order:
-                    fig.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-                return fig
-        
-            run_df = df[df['play_type']=='Run'].copy() if 'play_type' in df.columns else pd.DataFrame()
-            pass_df = df[df['play_type']=='Pass'].copy() if 'play_type' in df.columns else pd.DataFrame()
-            success_df = df.copy()
-        
-            st.markdown("### Explosive Plays")
-            c1, c2 = st.columns(2)
-            with c1: st.plotly_chart(themed_chart(plot_heatmap_hover(run_df, 'explosive', 'Run Explosive %')), use_container_width=True, theme=None)
-            with c2: st.plotly_chart(themed_chart(plot_heatmap_hover(pass_df, 'explosive', 'Pass Explosive %')), use_container_width=True, theme=None)
-            st.markdown("### Success Rate")
-            st.plotly_chart(themed_chart(plot_heatmap_hover(success_df, 'success', 'Success Rate %')), use_container_width=True, theme=None)
-    
-        # -------------------------
-        # TAB 2: Gain/Loss Breakdown
-        # -------------------------
-        with tab2:
-            if 'down' in df.columns:
-                summary = df.groupby(['down','yard_group']).agg(avg_gain=('gain_loss', 'mean'), num_plays=('gain_loss', 'count')).reset_index()
-                pivot_gain = summary.pivot(index='down', columns='yard_group', values='avg_gain').fillna(0)
-                pivot_plays = summary.pivot(index='down', columns='yard_group', values='num_plays').fillna(0)
-                customdata_array = np.stack([pivot_plays.values], axis=-1)
-                
-                fig_heat = px.imshow(pivot_gain, text_auto=".1f", color_continuous_scale='Blues', labels={'x':'Yard Group','y':'Down','color':'Avg Gain'}, template='plotly_dark', title="Average Gain / Loss by Down & Yard Group")
-                fig_heat.update_traces(hovertemplate="<b>Down:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f} yards<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=customdata_array)
-                fig_heat.update_layout(yaxis={'categoryorder':'array','categoryarray':down_order})
-                st.plotly_chart(themed_chart(fig_heat), use_container_width=True, theme=None)
-    
-        # -------------------------
-        # TAB 3: Concept by Yardline
-        # -------------------------
-        with tab3:
-            st.markdown('<div class="section-header">Concept Effectiveness by Field Zone</div>', unsafe_allow_html=True)
-            if 'concept' in df.columns:
-                c1, c2 = st.columns(2)
-                with c1: min_plays = st.number_input("Min Plays to Show Concept", min_value=1, value=2, step=1)
-                with c2: metric_to_show = st.selectbox("Select Metric", ["Success Rate %", "Average Gain", "Explosive Play %"])
-    
-                metric_map = {"Success Rate %": "success", "Average Gain": "gain_loss", "Explosive Play %": "explosive"}
-                concept_summary = df.groupby(['concept', 'yard_group']).agg(plays=('gain_loss', 'count'), avg_gain=('gain_loss', 'mean'), success_rate=('success', 'mean'), explosive_rate=('explosive', 'mean')).reset_index()
-                concept_summary = concept_summary[concept_summary['plays'] >= min_plays]
-    
-                if concept_summary.empty:
-                    st.warning("No concepts met the threshold.")
-                else:
-                    if metric_to_show == "Success Rate %": concept_summary['display_val'] = (concept_summary['success_rate'] * 100).round(1)
-                    elif metric_to_show == "Explosive Play %": concept_summary['display_val'] = (concept_summary['explosive_rate'] * 100).round(1)
-                    else: concept_summary['display_val'] = concept_summary['avg_gain'].round(1)
-    
-                    pivot_concept = concept_summary.pivot(index='concept', columns='yard_group', values='display_val').fillna(0)
-                    pivot_plays = concept_summary.pivot(index='concept', columns='yard_group', values='plays').fillna(0)
-                    existing_yard_order = [y for y in yard_order if y in pivot_concept.columns]
-                    pivot_concept = pivot_concept[existing_yard_order]
-                    pivot_plays = pivot_plays[existing_yard_order]
-    
-                    fig_concept = px.imshow(pivot_concept, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Field Zone', 'y': 'Play Concept', 'color': metric_to_show}, title=f"{metric_to_show} by Concept and Yardline")
-                    fig_concept.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Yard Group:</b> %{x}<br><b>Value:</b> %{z}<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_plays.values], axis=-1))
-                    st.plotly_chart(themed_chart(fig_concept), use_container_width=True, theme=None)
-    
-                if 'concept' in df.columns:
-                    summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
-                    summary = summary[summary['plays'] >= 3]
-                
-                    st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
-    
-        # -------------------------
-        # TAB 4: Formation Breakdown
-        # -------------------------
-        with tab4:
-            if 'formation' in df.columns and 'down' in df.columns:
-                form_summary = df.groupby(['formation', 'down']).agg(avg_gain=('gain_loss', 'mean'), num_plays=('gain_loss', 'count')).reset_index()
-                form_summary = form_summary[form_summary['num_plays'] >= 2]
-                pivot_form = form_summary.pivot(index='formation', columns='down', values='avg_gain').fillna(0)
-                pivot_form_plays = form_summary.pivot(index='formation', columns='down', values='num_plays').fillna(0)
-    
-                
-                if down_order:
-                    existing_downs = [d for d in down_order if d in pivot_form.columns]
-                    pivot_form, pivot_form_plays = pivot_form[existing_downs], pivot_form_plays[existing_downs]
-    
-                fig_form = px.imshow(pivot_form, text_auto=True, aspect="auto", color_continuous_scale='Blues', template='plotly_dark', labels={'x': 'Down', 'y': 'Formation', 'color': 'Avg Gain'}, title="Average Gain by Formation and Down")
-                fig_form.update_traces(hovertemplate="<b>Formation:</b> %{y}<br><b>Down:</b> %{x}<br><b>Avg Gain:</b> %{z:.1f}y<br><b>Plays:</b> %{customdata[0]:.0f}<extra></extra>", customdata=np.stack([pivot_form_plays.values], axis=-1))
-                st.plotly_chart(themed_chart(fig_form), use_container_width=True, theme=None)
-    
-                if 'formation' in df.columns:
-                    summary = df.groupby('formation').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
-                    summary = summary[summary['plays'] >= 3]
-                
-                    st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
-            
-    
-        # -------------------------
-        # TAB 5: Concept Breakdown
-        # -------------------------
-        with tab5:
-            st.markdown('<div class="section-header">Concept Breakdown</div>', unsafe_allow_html=True)
-            if 'concept' in df.columns:
-                summary = df.groupby('concept').agg(plays=('gain_loss','size'), avg_gain=('gain_loss','mean'), success_pct=('success','mean'), explosive_pct=('explosive','mean')).reset_index()
-                summary = summary[summary['plays'] >= 3]
-                
-                st.dataframe(summary.sort_values('success_pct', ascending=False), use_container_width=True)
-    
-                summary_success = summary.sort_values('success_pct')
-                fig = px.bar(summary_success, x='success_pct', y='concept', orientation='h', template='plotly_dark', title="Concept Success Rate", labels={'success_pct':'Success %'}, color='success_pct', color_continuous_scale='Blues')
-                fig.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Success %:</b> %{x:.1%}<br><b>Plays:</b> %{customdata[0]}<br><b>Avg Gain:</b> %{customdata[1]:.1f}y<extra></extra>", customdata=np.stack([summary_success['plays'], summary_success['avg_gain']], axis=-1))
-                st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
-    
-                summary_explosive = summary.sort_values('explosive_pct')
-                fig2 = px.bar(summary_explosive, x='explosive_pct', y='concept', orientation='h', template='plotly_dark', title="Concept Explosive Play %", labels={'explosive_pct':'Explosive %'}, color='explosive_pct', color_continuous_scale='Blues')
-                fig2.update_traces(hovertemplate="<b>Concept:</b> %{y}<br><b>Explosive %:</b> %{x:.1%}<br><b>Plays:</b> %{customdata[0]}<br><b>Avg Gain:</b> %{customdata[1]:.1f}y<extra></extra>", customdata=np.stack([summary_explosive['plays'], summary_explosive['avg_gain']], axis=-1))
-                st.plotly_chart(themed_chart(fig2), use_container_width=True, theme=None)
+        base_df = load_base_data()
+    except Exception as error:
+        st.error(
+            f"Error loading AllPlaysTrainData.csv: {error}"
+        )
+        return
 
+    try:
+        (
+            model, int_to_play, accuracy,
+            X_test, y_test, features, n_classes,
+        ) = train_model(base_df, df.copy())
+    except Exception as error:
+        st.error(f"Model training failed: {error}")
+        return
 
-def render_play_breakdown(uploaded_file):
-    import pandas as pd
-    import plotly.express as px
+    st.success(f"Overall Model Accuracy: {accuracy:.2%}")
 
-    st.title("Play Breakdown")
-    st.caption(
-        "Analyze which formations are used for each play and which plays "
-        "are used from each formation."
+    st.markdown("### Predict Play")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        pred_down = st.selectbox(
+            "Down", [1, 2, 3, 4], key="prediction_down"
+        )
+    with c2:
+        pred_dist = st.number_input(
+            "Distance",
+            min_value=1,
+            max_value=30,
+            value=5,
+            key="prediction_distance",
+        )
+    with c3:
+        pred_yard = st.number_input(
+            "Yardline",
+            min_value=-50,
+            max_value=50,
+            value=0,
+            key="prediction_yardline",
+        )
+
+    input_df = pd.DataFrame([{
+        "down": pred_down,
+        "distance": pred_dist,
+        "yardline": pred_yard,
+    }])
+    input_df = add_prediction_features(input_df)
+
+    probabilities = model.predict_proba(
+        input_df[features]
+    )[0]
+
+    if n_classes == 2 and len(probabilities) == 1:
+        probabilities = np.array([
+            1 - probabilities[0], probabilities[0]
+        ])
+
+    predicted_class = int(np.argmax(probabilities))
+    predicted_play = int_to_play[predicted_class]
+    confidence = float(np.max(probabilities))
+
+    mask = (
+        (X_test["down"] == pred_down)
+        & ((X_test["distance"] - pred_dist).abs() <= 2)
+        & ((X_test["yardline"] - pred_yard).abs() <= 10)
     )
+
+    similar_X = X_test[mask]
+    similar_y = y_test[mask]
+
+    situation_accuracy = None
+    if len(similar_X) >= 10:
+        situation_accuracy = accuracy_score(
+            similar_y, model.predict(similar_X)
+        )
+
+    st.markdown("### Results")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Predicted Play", predicted_play)
+    c2.metric("Confidence", f"{confidence:.1%}")
+    c3.metric("Model Accuracy", f"{accuracy:.1%}")
+
+    if situation_accuracy is not None:
+        st.metric(
+            "Situation Accuracy",
+            f"{situation_accuracy:.1%}",
+        )
+    else:
+        st.info(
+            "Not enough similar plays for situation accuracy."
+        )
+
+    st.markdown("### Top 3 Plays")
+    for index in np.argsort(probabilities)[::-1][:3]:
+        if index in int_to_play:
+            st.write(
+                f"{int_to_play[index]} — "
+                f"{probabilities[index]:.1%}"
+            )
+
+    st.markdown("### Full Probabilities")
+    probability_df = pd.DataFrame([
+        {
+            "Play": int_to_play[index],
+            "Probability": probabilities[index],
+        }
+        for index in range(len(probabilities))
+        if index in int_to_play
+    ]).sort_values("Probability", ascending=False)
+
+    probability_df["Probability"] = (
+        probability_df["Probability"]
+        .map(lambda value: f"{value:.2%}")
+    )
+    st.dataframe(
+        probability_df, use_container_width=True
+    )
+
+    st.markdown("### Situation Insight")
+    if pred_down == 3 and pred_dist >= 7:
+        st.info(
+            "Likely passing tendency: long-yardage third down."
+        )
+    elif pred_down == 1 and pred_dist <= 3:
+        st.info(
+            "Likely run tendency: short-yardage first down."
+        )
+    elif pred_down == 4:
+        st.info(
+            "Fourth down can be more volatile because "
+            "of smaller sample sizes."
+        )
+
+
+# =========================================================
+# ADVANCED ANALYTICS
+# =========================================================
+def render_advanced_analytics(uploaded_file):
+    sidebar_logo()
+    st.sidebar.title("Har-Ber Advanced Analytics")
 
     if uploaded_file is None:
-        st.info("Upload a Hudl Excel file from the sidebar to begin.")
-        return
-
-    df = pd.read_excel(uploaded_file)
-    df.columns = df.columns.str.lower().str.strip()
-
-    column_map = {
-        "off form": "formation",
-        "off formation": "formation",
-        "off play": "concept",
-        "play concept": "concept",
-        "play": "concept",
-        "gn/ls": "gain_loss",
-        "gain loss": "gain_loss",
-        "gain/loss": "gain_loss",
-    }
-    df = df.rename(
-        columns={
-            old_name: new_name
-            for old_name, new_name in column_map.items()
-            if old_name in df.columns
-        }
-    )
-
-    missing_columns = [
-        column for column in ["formation", "concept"]
-        if column not in df.columns
-    ]
-    if missing_columns:
-        st.error(
-            "The uploaded file is missing the following required columns: "
-            + ", ".join(missing_columns)
+        st.info(
+            "Upload a Hudl Excel file in the sidebar "
+            "to open the dashboard."
         )
         return
 
-    df["formation"] = df["formation"].astype("string").str.strip()
-    df["concept"] = df["concept"].astype("string").str.strip()
-    if "gain_loss" in df.columns:
-        df["gain_loss"] = pd.to_numeric(df["gain_loss"], errors="coerce")
-    df = df.dropna(subset=["formation", "concept"])
-    df = df[(df["formation"] != "") & (df["concept"] != "")]
+    df = read_uploaded_excel(uploaded_file)
+    df = standardize_columns(df)
     df = apply_global_play_settings(df)
+    df = ensure_numeric_columns(
+        df, ["gain_loss", "down", "yardline"]
+    )
 
-    if df.empty:
-        st.warning("No usable formation and play data were found.")
+    if "gain_loss" not in df.columns:
+        st.error(
+            "No gain/loss column found in uploaded file."
+        )
         return
 
-    if st.session_state.get("ignore_rpo_tag", True):
-        st.success("RPO-tagged plays are currently grouped with their base plays.")
-    else:
-        st.info("RPO-tagged plays are currently shown separately.")
+    def advanced_yard_group(yardline):
+        if pd.isna(yardline):
+            return "Unknown"
+        if 0 <= yardline <= 9:
+            return "0 - 9"
+        elif 10 <= yardline <= 19:
+            return "10 - 19"
+        elif 20 <= yardline <= 29:
+            return "20 - 29"
+        elif 30 <= yardline <= 39:
+            return "30 - 39"
+        elif 40 <= yardline <= 50:
+            return "40 - 50"
+        elif -9 <= yardline <= 0:
+            return "-9 - 0"
+        elif -19 <= yardline <= -10:
+            return "-19 - -10"
+        elif -29 <= yardline <= -20:
+            return "-29 - -20"
+        elif -39 <= yardline <= -30:
+            return "-39 - -30"
+        elif -50 <= yardline <= -40:
+            return "-50 - -40"
+        return "Other"
 
+    if "yardline" in df.columns:
+        df["yard_group"] = df["yardline"].apply(
+            advanced_yard_group
+        )
+    else:
+        df["yard_group"] = "Unknown"
+
+    yard_order = [
+        "-50 - -40", "-39 - -30", "-29 - -20",
+        "-19 - -10", "-9 - 0", "0 - 9",
+        "10 - 19", "20 - 29", "30 - 39", "40 - 50",
+    ]
+
+    # Missing gains remain missing rather than becoming zero-yard plays.
+    df["success"] = (
+        df["gain_loss"].ge(4)
+        .astype(float)
+        .where(df["gain_loss"].notna())
+    )
+
+    if "play_type" in df.columns:
+        play_types = (
+            df["play_type"].astype("string")
+            .str.strip().str.lower()
+        )
+    else:
+        play_types = pd.Series(
+            pd.NA, index=df.index, dtype="string"
+        )
+
+    run_mask = play_types.eq("run").fillna(False)
+    pass_mask = play_types.eq("pass").fillna(False)
+
+    df["explosive"] = np.nan
+    valid_gains = df["gain_loss"].notna()
+
+    df.loc[run_mask & valid_gains, "explosive"] = (
+        df.loc[run_mask & valid_gains, "gain_loss"]
+        .ge(10).astype(float)
+    )
+    df.loc[pass_mask & valid_gains, "explosive"] = (
+        df.loc[pass_mask & valid_gains, "gain_loss"]
+        .ge(20).astype(float)
+    )
+
+    down_order = (
+        sorted(df["down"].dropna().unique())
+        if "down" in df.columns else []
+    )
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Explosive & Success Metrics",
+        "Gain/Loss Breakdown",
+        "Concept by Yardline",
+        "Formation Breakdown",
+        "Concept Breakdown",
+    ])
+
+    def rate_heatmap(data, value_column, title, key):
+        if "down" not in data.columns:
+            st.info("A down column is required for this heatmap.")
+            return
+
+        data = data.dropna(subset=[value_column])
+
+        if data.empty:
+            st.info(f"No usable data for {title}.")
+            return
+
+        summary = (
+            data.groupby(["down", "yard_group"])
+            .agg(
+                num_plays=("gain_loss", "size"),
+                avg_gain=("gain_loss", "mean"),
+                rate=(value_column, "mean"),
+            )
+            .reset_index()
+        )
+
+        if summary.empty:
+            st.info(f"No usable data for {title}.")
+            return
+
+        rates = summary.pivot(
+            index="down", columns="yard_group", values="rate"
+        ) * 100
+        counts = summary.pivot(
+            index="down",
+            columns="yard_group",
+            values="num_plays",
+        )
+        gains = summary.pivot(
+            index="down",
+            columns="yard_group",
+            values="avg_gain",
+        )
+
+        ordered_columns = [
+            group for group in yard_order
+            if group in rates.columns
+        ] + [
+            group for group in rates.columns
+            if group not in yard_order
+        ]
+
+        rates = rates.reindex(columns=ordered_columns)
+        counts = counts.reindex(
+            index=rates.index, columns=rates.columns
+        )
+        gains = gains.reindex(
+            index=rates.index, columns=rates.columns
+        )
+
+        fig = px.imshow(
+            rates,
+            text_auto=".1f",
+            aspect="auto",
+            labels={
+                "x": "Yard Group",
+                "y": "Down",
+                "color": title,
+            },
+            color_continuous_scale="Blues",
+            title=title,
+        )
+        fig.update_traces(
+            customdata=np.stack(
+                [counts.values, gains.values], axis=-1
+            ),
+            hovertemplate=(
+                "<b>Down:</b> %{y}<br>"
+                "<b>Yard Group:</b> %{x}<br>"
+                "<b>Rate:</b> %{z:.1f}%<br>"
+                "<b>Plays:</b> %{customdata[0]:.0f}<br>"
+                "<b>Avg Gain:</b> %{customdata[1]:.1f}y"
+                "<extra></extra>"
+            ),
+        )
+        show_chart(fig, key=key)
+
+    with tab1:
+        section_header("Explosive Play & Success Metrics")
+        st.markdown(
+            "**Definitions:**\n"
+            "- **Explosive Plays:** Runs ≥ 10 yards, "
+            "Passes ≥ 20 yards\n"
+            "- **Success:** Plays gaining ≥ 4 yards"
+        )
+
+        explosive_runs = df.loc[
+            run_mask, "explosive"
+        ].mean() * 100
+        explosive_passes = df.loc[
+            pass_mask, "explosive"
+        ].mean() * 100
+        success_percent = df["success"].mean() * 100
+
+        def rate_label(value):
+            return "N/A" if pd.isna(value) else f"{value:.1f}%"
+
+        c1, c2, c3, c4 = st.columns(4)
+        metric_card(c1, len(df), "Total Plays")
+        metric_card(
+            c2, rate_label(explosive_runs), "Explosive Runs"
+        )
+        metric_card(
+            c3, rate_label(explosive_passes), "Explosive Passes"
+        )
+        metric_card(
+            c4, rate_label(success_percent), "Overall Success %"
+        )
+
+        st.markdown("### Explosive Plays")
+        c1, c2 = st.columns(2)
+        with c1:
+            rate_heatmap(
+                df[run_mask],
+                "explosive",
+                "Run Explosive %",
+                "advanced_run_explosive",
+            )
+        with c2:
+            rate_heatmap(
+                df[pass_mask],
+                "explosive",
+                "Pass Explosive %",
+                "advanced_pass_explosive",
+            )
+
+        st.markdown("### Success Rate")
+        rate_heatmap(
+            df,
+            "success",
+            "Success Rate %",
+            "advanced_success",
+        )
+
+    with tab2:
+        if "down" not in df.columns:
+            st.info("A down column is required for this chart.")
+        else:
+            summary = (
+                df.groupby(["down", "yard_group"])
+                .agg(
+                    avg_gain=("gain_loss", "mean"),
+                    num_plays=("gain_loss", "count"),
+                )
+                .reset_index()
+            )
+
+            if summary.empty:
+                st.info("No usable gain/loss breakdown found.")
+            else:
+                gains = summary.pivot(
+                    index="down",
+                    columns="yard_group",
+                    values="avg_gain",
+                )
+                counts = summary.pivot(
+                    index="down",
+                    columns="yard_group",
+                    values="num_plays",
+                ).reindex(
+                    index=gains.index, columns=gains.columns
+                )
+
+                fig = px.imshow(
+                    gains,
+                    text_auto=".1f",
+                    color_continuous_scale="Blues",
+                    labels={
+                        "x": "Yard Group",
+                        "y": "Down",
+                        "color": "Avg Gain",
+                    },
+                    title=(
+                        "Average Gain / Loss by Down & Yard Group"
+                    ),
+                )
+                fig.update_traces(
+                    customdata=counts.values,
+                    hovertemplate=(
+                        "<b>Down:</b> %{y}<br>"
+                        "<b>Yard Group:</b> %{x}<br>"
+                        "<b>Avg Gain:</b> %{z:.1f} yards<br>"
+                        "<b>Recorded Gains:</b> %{customdata:.0f}"
+                        "<extra></extra>"
+                    ),
+                )
+                show_chart(fig, key="advanced_gain_heatmap")
+
+    with tab3:
+        section_header("Concept Effectiveness by Field Zone")
+
+        if "concept" not in df.columns:
+            st.info("A concept column is required.")
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                min_plays = st.number_input(
+                    "Min Plays to Show Concept",
+                    min_value=1,
+                    value=2,
+                    step=1,
+                    key="advanced_concept_min_plays",
+                )
+            with c2:
+                metric = st.selectbox(
+                    "Select Metric",
+                    [
+                        "Success Rate %",
+                        "Average Gain",
+                        "Explosive Play %",
+                    ],
+                    key="advanced_concept_metric",
+                )
+
+            summary = (
+                df.groupby(["concept", "yard_group"])
+                .agg(
+                    plays=("gain_loss", "size"),
+                    avg_gain=("gain_loss", "mean"),
+                    success_rate=("success", "mean"),
+                    explosive_rate=("explosive", "mean"),
+                )
+                .reset_index()
+            )
+            summary = summary[
+                summary["plays"] >= min_plays
+            ].copy()
+
+            if summary.empty:
+                st.warning("No concepts met the threshold.")
+            else:
+                if metric == "Success Rate %":
+                    summary["display_val"] = (
+                        summary["success_rate"] * 100
+                    ).round(1)
+                elif metric == "Explosive Play %":
+                    summary["display_val"] = (
+                        summary["explosive_rate"] * 100
+                    ).round(1)
+                else:
+                    summary["display_val"] = (
+                        summary["avg_gain"].round(1)
+                    )
+
+                values = summary.pivot(
+                    index="concept",
+                    columns="yard_group",
+                    values="display_val",
+                )
+                counts = summary.pivot(
+                    index="concept",
+                    columns="yard_group",
+                    values="plays",
+                )
+                order = [
+                    group for group in yard_order
+                    if group in values.columns
+                ] + [
+                    group for group in values.columns
+                    if group not in yard_order
+                ]
+                values = values.reindex(columns=order)
+                counts = counts.reindex(
+                    index=values.index, columns=order
+                )
+
+                fig = px.imshow(
+                    values,
+                    text_auto=True,
+                    aspect="auto",
+                    color_continuous_scale="Blues",
+                    labels={
+                        "x": "Field Zone",
+                        "y": "Play Concept",
+                        "color": metric,
+                    },
+                    title=f"{metric} by Concept and Yardline",
+                )
+                fig.update_traces(
+                    customdata=counts.values,
+                    hovertemplate=(
+                        "<b>Concept:</b> %{y}<br>"
+                        "<b>Yard Group:</b> %{x}<br>"
+                        "<b>Value:</b> %{z}<br>"
+                        "<b>Plays:</b> %{customdata:.0f}"
+                        "<extra></extra>"
+                    ),
+                )
+                show_chart(
+                    fig, key="advanced_concept_yardline"
+                )
+
+            overall = (
+                df.groupby("concept")
+                .agg(
+                    plays=("gain_loss", "size"),
+                    avg_gain=("gain_loss", "mean"),
+                    success_pct=("success", "mean"),
+                    explosive_pct=("explosive", "mean"),
+                )
+                .reset_index()
+            )
+            overall = overall[overall["plays"] >= 3]
+            st.dataframe(
+                overall.sort_values(
+                    "success_pct", ascending=False
+                ),
+                use_container_width=True,
+            )
+
+    with tab4:
+        if not {"formation", "down"}.issubset(df.columns):
+            st.info("Formation and down columns are required.")
+        else:
+            summary = (
+                df.groupby(["formation", "down"])
+                .agg(
+                    avg_gain=("gain_loss", "mean"),
+                    num_plays=("gain_loss", "count"),
+                )
+                .reset_index()
+            )
+            summary = summary[
+                summary["num_plays"] >= 2
+            ]
+
+            if summary.empty:
+                st.info(
+                    "No formation/down combinations "
+                    "have at least two recorded gains."
+                )
+            else:
+                values = summary.pivot(
+                    index="formation",
+                    columns="down",
+                    values="avg_gain",
+                )
+                counts = summary.pivot(
+                    index="formation",
+                    columns="down",
+                    values="num_plays",
+                )
+
+                order = [
+                    down for down in down_order
+                    if down in values.columns
+                ]
+                values = values.reindex(columns=order)
+                counts = counts.reindex(
+                    index=values.index, columns=order
+                )
+
+                fig = px.imshow(
+                    values,
+                    text_auto=True,
+                    aspect="auto",
+                    color_continuous_scale="Blues",
+                    labels={
+                        "x": "Down",
+                        "y": "Formation",
+                        "color": "Avg Gain",
+                    },
+                    title="Average Gain by Formation and Down",
+                )
+                fig.update_traces(
+                    customdata=counts.values,
+                    hovertemplate=(
+                        "<b>Formation:</b> %{y}<br>"
+                        "<b>Down:</b> %{x}<br>"
+                        "<b>Avg Gain:</b> %{z:.1f}y<br>"
+                        "<b>Recorded Gains:</b> %{customdata:.0f}"
+                        "<extra></extra>"
+                    ),
+                )
+                show_chart(
+                    fig, key="advanced_formation_down"
+                )
+
+            overall = (
+                df.groupby("formation")
+                .agg(
+                    plays=("gain_loss", "size"),
+                    avg_gain=("gain_loss", "mean"),
+                    success_pct=("success", "mean"),
+                    explosive_pct=("explosive", "mean"),
+                )
+                .reset_index()
+            )
+            overall = overall[overall["plays"] >= 3]
+            st.dataframe(
+                overall.sort_values(
+                    "success_pct", ascending=False
+                ),
+                use_container_width=True,
+            )
+
+    with tab5:
+        section_header("Concept Breakdown")
+
+        if "concept" not in df.columns:
+            st.info("A concept column is required.")
+        else:
+            summary = (
+                df.groupby("concept")
+                .agg(
+                    plays=("gain_loss", "size"),
+                    avg_gain=("gain_loss", "mean"),
+                    success_pct=("success", "mean"),
+                    explosive_pct=("explosive", "mean"),
+                )
+                .reset_index()
+            )
+            summary = summary[summary["plays"] >= 3]
+
+            st.dataframe(
+                summary.sort_values(
+                    "success_pct", ascending=False
+                ),
+                use_container_width=True,
+            )
+
+            for metric, title, key in [
+                (
+                    "success_pct",
+                    "Concept Success Rate",
+                    "advanced_concept_success",
+                ),
+                (
+                    "explosive_pct",
+                    "Concept Explosive Play %",
+                    "advanced_concept_explosive",
+                ),
+            ]:
+                chart_data = (
+                    summary.dropna(subset=[metric])
+                    .sort_values(metric)
+                )
+                if chart_data.empty:
+                    st.info(f"No usable data for {title}.")
+                    continue
+
+                fig = px.bar(
+                    chart_data,
+                    x=metric,
+                    y="concept",
+                    orientation="h",
+                    title=title,
+                    labels={metric: "Rate"},
+                    color=metric,
+                    color_continuous_scale="Blues",
+                    custom_data=["plays", "avg_gain"],
+                )
+                fig.update_traces(
+                    hovertemplate=(
+                        "<b>Concept:</b> %{y}<br>"
+                        "<b>Rate:</b> %{x:.1%}<br>"
+                        "<b>Plays:</b> %{customdata[0]}<br>"
+                        "<b>Avg Gain:</b> %{customdata[1]:.1f}y"
+                        "<extra></extra>"
+                    )
+                )
+                show_chart(fig, key=key)
+
+
+# =========================================================
+# PLAY BREAKDOWN HELPERS
+# =========================================================
+def render_custom_grouping(df):
     if "custom_breakdown_groups" not in st.session_state:
         st.session_state.custom_breakdown_groups = []
+
     if "custom_breakdown_group_id" not in st.session_state:
         st.session_state.custom_breakdown_group_id = 1
 
     with st.expander("Custom Grouping", expanded=False):
         st.caption(
-            "Create multiple temporary groups. Each group can be turned on or "
-            "off independently, and your uploaded file is never changed."
+            "Create multiple temporary groups. Each group can "
+            "be turned on or off independently, and your "
+            "uploaded file is never changed."
         )
 
         grouping_type = st.radio(
@@ -1583,50 +1835,71 @@ def render_play_breakdown(uploaded_file):
             horizontal=True,
             key="new_custom_grouping_type",
         )
-        grouping_column = "concept" if grouping_type == "Plays" else "formation"
-        grouping_options = sorted(df[grouping_column].dropna().unique().tolist())
+        column = (
+            "concept" if grouping_type == "Plays"
+            else "formation"
+        )
+        options = sorted(
+            df[column].dropna().unique().tolist()
+        )
 
-        selected_group_items = st.multiselect(
+        selected_items = st.multiselect(
             f"Select {grouping_type.lower()} to combine",
-            grouping_options,
-            key=f"new_custom_{grouping_column}_items",
+            options,
+            key=f"new_custom_{column}_items",
             help="Select at least two items.",
         )
-        custom_group_name = st.text_input(
+
+        group_name = st.text_input(
             "Combined group name",
             value="",
             placeholder="Example: Counter Family",
-            key=f"new_custom_{grouping_column}_name",
+            key=f"new_custom_{column}_name",
         ).strip()
 
-        if st.button("Add custom group", use_container_width=True):
-            if len(selected_group_items) < 2:
-                st.warning("Select at least two items before adding the group.")
-            elif not custom_group_name:
-                st.warning("Enter a name for the combined group.")
+        if st.button(
+            "Add custom group", use_container_width=True
+        ):
+            if len(selected_items) < 2:
+                st.warning(
+                    "Select at least two items "
+                    "before adding the group."
+                )
+            elif not group_name:
+                st.warning(
+                    "Enter a name for the combined group."
+                )
             else:
                 used_items = {
                     item
-                    for group in st.session_state.custom_breakdown_groups
-                    if group["column"] == grouping_column
+                    for group in (
+                        st.session_state.custom_breakdown_groups
+                    )
+                    if group["column"] == column
                     for item in group["items"]
                 }
-                overlaps = sorted(set(selected_group_items) & used_items)
+                overlaps = sorted(
+                    set(selected_items) & used_items
+                )
 
                 if overlaps:
                     st.warning(
-                        "These items are already assigned to another custom group: "
+                        "These items are already assigned "
+                        "to another custom group: "
                         + ", ".join(overlaps)
-                        + ". Remove that group before reassigning them."
+                        + ". Remove that group before "
+                        "reassigning them."
                     )
                 else:
-                    group_id = st.session_state.custom_breakdown_group_id
+                    group_id = (
+                        st.session_state.custom_breakdown_group_id
+                    )
                     st.session_state.custom_breakdown_groups.append({
                         "id": group_id,
                         "type": grouping_type,
-                        "column": grouping_column,
-                        "name": custom_group_name,
-                        "items": list(selected_group_items),
+                        "column": column,
+                        "name": group_name,
+                        "items": list(selected_items),
                         "enabled": True,
                     })
                     st.session_state.custom_breakdown_group_id += 1
@@ -1638,8 +1911,13 @@ def render_play_breakdown(uploaded_file):
         if not st.session_state.custom_breakdown_groups:
             st.info("No custom groups have been added yet.")
         else:
-            for group in list(st.session_state.custom_breakdown_groups):
-                enabled_col, details_col, remove_col = st.columns([1, 4, 1])
+            for group in list(
+                st.session_state.custom_breakdown_groups
+            ):
+                enabled_col, details_col, remove_col = (
+                    st.columns([1, 4, 1])
+                )
+
                 with enabled_col:
                     st.toggle(
                         "On",
@@ -1647,15 +1925,24 @@ def render_play_breakdown(uploaded_file):
                         key=f"custom_group_enabled_{group['id']}",
                         label_visibility="collapsed",
                     )
+
                 with details_col:
-                    st.markdown(f"**{group['name']}** · {group['type']}")
+                    st.markdown(
+                        f"**{group['name']}** · {group['type']}"
+                    )
                     st.caption(" + ".join(group["items"]))
+
                 with remove_col:
-                    if st.button("Remove", key=f"remove_custom_group_{group['id']}"):
+                    if st.button(
+                        "Remove",
+                        key=f"remove_custom_group_{group['id']}",
+                    ):
                         st.session_state.custom_breakdown_groups = [
-                            saved_group
-                            for saved_group in st.session_state.custom_breakdown_groups
-                            if saved_group["id"] != group["id"]
+                            saved
+                            for saved in (
+                                st.session_state.custom_breakdown_groups
+                            )
+                            if saved["id"] != group["id"]
                         ]
                         st.session_state.pop(
                             f"custom_group_enabled_{group['id']}",
@@ -1663,8 +1950,13 @@ def render_play_breakdown(uploaded_file):
                         )
                         st.rerun()
 
-            if st.button("Clear all custom groups", use_container_width=True):
-                for group in st.session_state.custom_breakdown_groups:
+            if st.button(
+                "Clear all custom groups",
+                use_container_width=True,
+            ):
+                for group in (
+                    st.session_state.custom_breakdown_groups
+                ):
                     st.session_state.pop(
                         f"custom_group_enabled_{group['id']}",
                         None,
@@ -1672,21 +1964,301 @@ def render_play_breakdown(uploaded_file):
                 st.session_state.custom_breakdown_groups = []
                 st.rerun()
 
-    active_group_names = []
-    for group in st.session_state.custom_breakdown_groups:
-        is_enabled = st.session_state.get(
-            f"custom_group_enabled_{group['id']}",
-            group.get("enabled", True),
-        )
-        if is_enabled:
-            df.loc[
-                df[group["column"]].isin(group["items"]),
-                group["column"],
-            ] = group["name"]
-            active_group_names.append(group["name"])
 
-    if active_group_names:
-        st.success("Active custom groups: " + ", ".join(active_group_names))
+def breakdown_table_config(category):
+    return {
+        category: (
+            "Formation" if category == "formation" else "Play"
+        ),
+        "plays": st.column_config.NumberColumn(
+            "Plays", format="%d"
+        ),
+        "percentage": st.column_config.NumberColumn(
+            "Usage %", format="%.1f%%"
+        ),
+        "average_gain": st.column_config.NumberColumn(
+            "Average Gain", format="%.1f yds"
+        ),
+        "longest_play": st.column_config.NumberColumn(
+            "Longest Play", format="%.1f yds"
+        ),
+        "shortest_play": st.column_config.NumberColumn(
+            "Shortest Play", format="%.1f yds"
+        ),
+    }
+
+
+def render_selection_breakdown(
+    df,
+    select_column,
+    group_column,
+    select_label,
+    select_key,
+):
+    selected_value = st.selectbox(
+        select_label,
+        sorted(df[select_column].unique().tolist()),
+        key=select_key,
+    )
+
+    selected = df[
+        df[select_column] == selected_value
+    ]
+
+    aggregations = {
+        "plays": (group_column, "size"),
+    }
+    if "gain_loss" in selected.columns:
+        aggregations.update({
+            "average_gain": ("gain_loss", "mean"),
+            "longest_play": ("gain_loss", "max"),
+            "shortest_play": ("gain_loss", "min"),
+        })
+
+    summary = (
+        selected.groupby(group_column, dropna=False)
+        .agg(**aggregations)
+        .reset_index()
+        .sort_values("plays", ascending=False)
+    )
+
+    total = len(selected)
+    summary["percentage"] = (
+        summary["plays"] / total * 100
+    ).round(1)
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Plays", f"{total:,}")
+    c2.metric(
+        "Formations Used"
+        if group_column == "formation" else "Different Plays",
+        summary[group_column].nunique(),
+    )
+
+    if (
+        "gain_loss" in selected.columns
+        and selected["gain_loss"].notna().any()
+    ):
+        gains = selected["gain_loss"]
+        c3.metric("Average Gain", f"{gains.mean():.1f} yds")
+        c4.metric("Longest Play", f"{gains.max():.1f} yds")
+        c5.metric("Shortest Play", f"{gains.min():.1f} yds")
+    else:
+        c3.metric("Average Gain", "N/A")
+        c4.metric("Longest Play", "N/A")
+        c5.metric("Shortest Play", "N/A")
+
+    title = (
+        f"Formations Used for {selected_value}"
+        if group_column == "formation"
+        else f"Plays Run from {selected_value}"
+    )
+    category_label = (
+        "Formation" if group_column == "formation" else "Play"
+    )
+
+    fig = px.bar(
+        summary.sort_values("plays"),
+        x="plays",
+        y=group_column,
+        orientation="h",
+        text="percentage",
+        title=title,
+        labels={
+            "plays": "Number of Plays",
+            group_column: category_label,
+        },
+        color="plays",
+        color_continuous_scale="Blues",
+    )
+    fig.update_traces(
+        texttemplate="%{text:.1f}%",
+        textposition="outside",
+        hovertemplate=(
+            f"<b>{category_label}:</b> %{{y}}<br>"
+            "<b>Plays:</b> %{x}<br>"
+            "<b>Usage:</b> %{text:.1f}%"
+            "<extra></extra>"
+        ),
+    )
+    fig.update_layout(
+        coloraxis_showscale=False,
+        yaxis_title=None,
+    )
+
+    show_chart(fig, key=f"{select_key}_chart")
+    st.dataframe(
+        summary,
+        use_container_width=True,
+        hide_index=True,
+        column_config=breakdown_table_config(group_column),
+    )
+
+
+def render_averages(df, category):
+    label = "Formation" if category == "formation" else "Play"
+
+    st.subheader(f"{label} Averages")
+    st.write(
+        f"Compare every {label.lower()} by average gain, "
+        "shortest gain, longest gain, and number of plays."
+    )
+
+    if (
+        "gain_loss" not in df.columns
+        or not df["gain_loss"].notna().any()
+    ):
+        st.warning(
+            f"{label} averages require a gain/loss column "
+            "such as GN/LS, Gain Loss, or Gain/Loss."
+        )
+        return
+
+    averages = (
+        df.groupby(category, dropna=False)
+        .agg(
+            average_gain=("gain_loss", "mean"),
+            shortest_gain=("gain_loss", "min"),
+            longest_gain=("gain_loss", "max"),
+            number_of_plays=(category, "size"),
+        )
+        .reset_index()
+        .sort_values(
+            ["average_gain", "number_of_plays"],
+            ascending=[False, False],
+        )
+    )
+
+    for column in [
+        "average_gain", "shortest_gain", "longest_gain"
+    ]:
+        averages[column] = averages[column].round(1)
+
+    fig = px.bar(
+        averages.sort_values("average_gain"),
+        x="average_gain",
+        y=category,
+        orientation="h",
+        color="average_gain",
+        color_continuous_scale="Blues",
+        text="average_gain",
+        title=f"Average Gain by {label}",
+        labels={
+            category: label,
+            "average_gain": "Average Gain",
+        },
+        custom_data=[
+            "number_of_plays", "shortest_gain", "longest_gain"
+        ],
+    )
+    fig.update_traces(
+        texttemplate="%{text:.1f} yds",
+        textposition="outside",
+        hovertemplate=(
+            f"<b>{label}:</b> %{{y}}<br>"
+            "<b>Average Gain:</b> %{x:.1f} yds<br>"
+            "<b>Number of Plays:</b> %{customdata[0]}<br>"
+            "<b>Shortest Gain:</b> %{customdata[1]:.1f} yds<br>"
+            "<b>Longest Gain:</b> %{customdata[2]:.1f} yds"
+            "<extra></extra>"
+        ),
+    )
+    fig.update_layout(
+        coloraxis_showscale=False,
+        yaxis_title=None,
+    )
+
+    show_chart(fig, key=f"breakdown_{category}_averages")
+
+    st.dataframe(
+        averages,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            category: label,
+            "average_gain": st.column_config.NumberColumn(
+                "Average Gain", format="%.1f yds"
+            ),
+            "shortest_gain": st.column_config.NumberColumn(
+                "Shortest Gain", format="%.1f yds"
+            ),
+            "longest_gain": st.column_config.NumberColumn(
+                "Longest Gain", format="%.1f yds"
+            ),
+            "number_of_plays": st.column_config.NumberColumn(
+                "Number of Plays", format="%d"
+            ),
+        },
+    )
+
+
+# =========================================================
+# PLAY BREAKDOWN
+# =========================================================
+def render_play_breakdown(uploaded_file):
+    st.title("Play Breakdown")
+    st.caption(
+        "Analyze which formations are used for each play "
+        "and which plays are used from each formation."
+    )
+
+    if uploaded_file is None:
+        st.info(
+            "Upload a Hudl Excel file from the sidebar to begin."
+        )
+        return
+
+    df = read_uploaded_excel(uploaded_file)
+    df = standardize_columns(df)
+
+    missing = [
+        column for column in ["formation", "concept"]
+        if column not in df.columns
+    ]
+    if missing:
+        st.error(
+            "The uploaded file is missing the following "
+            "required columns: " + ", ".join(missing)
+        )
+        return
+
+    for column in ["formation", "concept"]:
+        df[column] = (
+            df[column].astype("string")
+            .str.strip().replace("", pd.NA)
+        )
+
+    df = ensure_numeric_columns(df, ["gain_loss"])
+    df = df.dropna(subset=["formation", "concept"])
+    df = apply_global_play_settings(df)
+
+    # Grouping rules can leave a play name empty.
+    df["concept"] = df["concept"].replace("", pd.NA)
+    df = df.dropna(subset=["concept"])
+
+    if df.empty:
+        st.warning(
+            "No usable formation and play data were found."
+        )
+        return
+
+    if st.session_state.get("ignore_rpo_tag", True):
+        st.success(
+            "RPO-tagged plays are currently grouped "
+            "with their base plays."
+        )
+    else:
+        st.info(
+            "RPO-tagged plays are currently shown separately."
+        )
+
+    render_custom_grouping(df)
+    df, active_names = apply_custom_breakdown_groups(df)
+
+    if active_names:
+        st.success(
+            "Active custom groups: " + ", ".join(active_names)
+        )
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "Plays by Formation",
@@ -1697,347 +2269,385 @@ def render_play_breakdown(uploaded_file):
 
     with tab1:
         st.subheader("Plays by Formation")
-        st.write("Select a play to see which formations it was run from.")
-
-        selected_play = st.selectbox(
-            "Select a play",
-            sorted(df["concept"].unique().tolist()),
-            key="breakdown_selected_play",
+        st.write(
+            "Select a play to see which formations "
+            "it was run from."
         )
-        play_data = df[df["concept"] == selected_play]
-        if "gain_loss" in play_data.columns:
-            summary = (
-                play_data.groupby("formation", dropna=False)
-                .agg(
-                    plays=("formation", "size"),
-                    average_gain=("gain_loss", "mean"),
-                    longest_play=("gain_loss", "max"),
-                    shortest_play=("gain_loss", "min"),
-                )
-                .reset_index()
-                .sort_values("plays", ascending=False)
-            )
-        else:
-            summary = (
-                play_data["formation"]
-                .value_counts()
-                .rename_axis("formation")
-                .reset_index(name="plays")
-            )
-        total = int(summary["plays"].sum())
-        summary["percentage"] = (summary["plays"] / total * 100).round(1)
-
-        metric1, metric2, metric3, metric4, metric5 = st.columns(5)
-        metric1.metric("Total Plays", f"{total:,}")
-        metric2.metric("Formations Used", summary["formation"].nunique())
-        if "gain_loss" in play_data.columns and play_data["gain_loss"].notna().any():
-            metric3.metric("Average Gain", f"{play_data['gain_loss'].mean():.1f} yds")
-            metric4.metric("Longest Play", f"{play_data['gain_loss'].max():.1f} yds")
-            metric5.metric("Shortest Play", f"{play_data['gain_loss'].min():.1f} yds")
-        else:
-            metric3.metric("Average Gain", "N/A")
-            metric4.metric("Longest Play", "N/A")
-            metric5.metric("Shortest Play", "N/A")
-
-        fig = px.bar(
-            summary.sort_values("plays"),
-            x="plays",
-            y="formation",
-            orientation="h",
-            text="percentage",
-            title=f"Formations Used for {selected_play}",
-            labels={"plays": "Number of Plays", "formation": "Formation"},
-            color="plays",
-            color_continuous_scale="Blues",
-            template="plotly_dark",
-        )
-        fig.update_traces(
-            texttemplate="%{text:.1f}%",
-            textposition="outside",
-            hovertemplate=(
-                "<b>Formation:</b> %{y}<br><b>Plays:</b> %{x}<br>"
-                "<b>Usage:</b> %{text:.1f}%<extra></extra>"
-            ),
-        )
-        fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
-        st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
-        st.dataframe(
-            summary,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "formation": "Formation",
-                "plays": st.column_config.NumberColumn("Plays", format="%d"),
-                "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
-                "average_gain": st.column_config.NumberColumn("Average Gain", format="%.1f yds"),
-                "longest_play": st.column_config.NumberColumn("Longest Play", format="%.1f yds"),
-                "shortest_play": st.column_config.NumberColumn("Shortest Play", format="%.1f yds"),
-            },
+        render_selection_breakdown(
+            df,
+            select_column="concept",
+            group_column="formation",
+            select_label="Select a play",
+            select_key="breakdown_selected_play",
         )
 
     with tab2:
         st.subheader("Formations by Play")
-        st.write("Select a formation to see which plays were run from it.")
-
-        selected_formation = st.selectbox(
-            "Select a formation",
-            sorted(df["formation"].unique().tolist()),
-            key="breakdown_selected_formation",
+        st.write(
+            "Select a formation to see which plays "
+            "were run from it."
         )
-        formation_data = df[df["formation"] == selected_formation]
-        if "gain_loss" in formation_data.columns:
-            summary = (
-                formation_data.groupby("concept", dropna=False)
-                .agg(
-                    plays=("concept", "size"),
-                    average_gain=("gain_loss", "mean"),
-                    longest_play=("gain_loss", "max"),
-                    shortest_play=("gain_loss", "min"),
-                )
-                .reset_index()
-                .sort_values("plays", ascending=False)
-            )
-        else:
-            summary = (
-                formation_data["concept"]
-                .value_counts()
-                .rename_axis("concept")
-                .reset_index(name="plays")
-            )
-        total = int(summary["plays"].sum())
-        summary["percentage"] = (summary["plays"] / total * 100).round(1)
+        render_selection_breakdown(
+            df,
+            select_column="formation",
+            group_column="concept",
+            select_label="Select a formation",
+            select_key="breakdown_selected_formation",
+        )
 
-        metric1, metric2, metric3, metric4, metric5 = st.columns(5)
-        metric1.metric("Total Plays", f"{total:,}")
-        metric2.metric("Different Plays", summary["concept"].nunique())
-        if "gain_loss" in formation_data.columns and formation_data["gain_loss"].notna().any():
-            metric3.metric("Average Gain", f"{formation_data['gain_loss'].mean():.1f} yds")
-            metric4.metric("Longest Play", f"{formation_data['gain_loss'].max():.1f} yds")
-            metric5.metric("Shortest Play", f"{formation_data['gain_loss'].min():.1f} yds")
+    with tab3:
+        render_averages(df, "formation")
+
+    with tab4:
+        render_averages(df, "concept")
+
+
+# =========================================================
+# NEW DASHBOARD: FORMATION TENDENCIES
+# =========================================================
+def render_formation_tendencies(uploaded_file):
+    st.title("Formation Tendencies")
+    st.caption(
+        "Explore play direction, gap or zone scheme, launch "
+        "point, RB path, and play call by formation."
+    )
+
+    if uploaded_file is None:
+        st.info(
+            "Upload a Hudl Excel file from the sidebar to begin."
+        )
+        return
+
+    # Read the original headers so they remain visible
+    # in the mapping selectors.
+    df = read_uploaded_excel(uploaded_file)
+    columns = df.columns.tolist()
+
+    def normalize_header(value):
+        return " ".join(
+            str(value).lower().strip()
+            .replace("_", " ")
+            .replace("-", " ")
+            .split()
+        )
+
+    aliases = {
+        "Formation": [
+            "formation", "off form", "off formation",
+        ],
+        "Play Direction": [
+            "play direction", "play dir", "direction",
+        ],
+        "Gap / Zone Scheme": [
+            "gap or zone scheme",
+            "gap/zone scheme",
+            "gap / zone scheme",
+            "gap zone scheme",
+            "gap/zone",
+            "gap / zone",
+            "gap zone",
+            "gap scheme",
+            "zone scheme",
+            "scheme",
+            "gap",
+        ],
+        "Launch Point": [
+            "launch point", "launch",
+        ],
+        "RB Path": [
+            "rb path", "running back path", "rb track",
+        ],
+        "Play Call": [
+            "play call", "off play", "concept",
+            "play concept", "play",
+        ],
+        "Gain / Loss": [
+            "gain loss", "gain/loss", "gain / loss", "gn/ls",
+        ],
+    }
+
+    options = [None] + columns
+    mapped = {}
+
+    with st.expander(
+        "Excel column mapping", expanded=True
+    ):
+        st.caption(
+            "Check the suggested columns. Choose the correct "
+            "Excel column for any field that was not detected."
+        )
+
+        for label, variants in aliases.items():
+            normalized_variants = {
+                normalize_header(value)
+                for value in variants
+            }
+
+            detected = next(
+                (
+                    column for column in columns
+                    if normalize_header(column)
+                    in normalized_variants
+                ),
+                None,
+            )
+
+            widget_key = (
+                f"formation_tendencies_mapping_{label}"
+            )
+
+            # Reset a previous mapping if a new upload no
+            # longer contains the selected column.
+            if (
+                widget_key in st.session_state
+                and st.session_state[widget_key]
+                not in options
+            ):
+                st.session_state.pop(widget_key)
+
+            mapped[label] = st.selectbox(
+                label,
+                options,
+                index=options.index(detected),
+                format_func=lambda value: (
+                    "Not mapped"
+                    if value is None else str(value)
+                ),
+                key=widget_key,
+            )
+
+    if mapped["Formation"] is None:
+        st.warning(
+            "Choose your formation column above to begin."
+        )
+        return
+
+    # Build an independent analysis frame. Rows with a
+    # formation remain included even if another field is blank.
+    analysis = pd.DataFrame(index=df.index)
+
+    for label, source_column in mapped.items():
+        if source_column is None:
+            continue
+
+        if label == "Gain / Loss":
+            analysis[label] = pd.to_numeric(
+                df[source_column], errors="coerce"
+            )
         else:
-            metric3.metric("Average Gain", "N/A")
-            metric4.metric("Longest Play", "N/A")
-            metric5.metric("Shortest Play", "N/A")
+            analysis[label] = (
+                df[source_column]
+                .astype("string")
+                .str.strip()
+                .replace("", pd.NA)
+            )
+
+    analysis = analysis.dropna(subset=["Formation"])
+
+    # Use the existing global switches on play calls.
+    if "Play Call" in analysis.columns:
+        grouped_calls = apply_global_play_settings(
+            analysis[["Play Call"]].rename(
+                columns={"Play Call": "concept"}
+            )
+        )
+        analysis["Play Call"] = (
+            grouped_calls["concept"].replace("", pd.NA)
+        )
+
+    # Honor custom groups created in Play Breakdown.
+    for group in st.session_state.get(
+        "custom_breakdown_groups", []
+    ):
+        enabled = st.session_state.get(
+            f"custom_group_enabled_{group['id']}",
+            group.get("enabled", True),
+        )
+
+        target = {
+            "formation": "Formation",
+            "concept": "Play Call",
+        }.get(group["column"])
+
+        if enabled and target in analysis.columns:
+            analysis.loc[
+                analysis[target].isin(group["items"]),
+                target,
+            ] = group["name"]
+
+    if analysis.empty:
+        st.warning(
+            "No plays with a recorded formation were found."
+        )
+        return
+
+    formation_options = sorted(
+        analysis["Formation"].unique().tolist()
+    )
+
+    selection_key = (
+        "formation_tendencies_selected_formation"
+    )
+    if (
+        selection_key in st.session_state
+        and st.session_state[selection_key]
+        not in formation_options
+    ):
+        st.session_state.pop(selection_key)
+
+    selected_formation = st.selectbox(
+        "Select a formation",
+        formation_options,
+        key=selection_key,
+    )
+
+    selected = analysis[
+        analysis["Formation"] == selected_formation
+    ].copy()
+
+    total_plays = len(selected)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Plays", f"{total_plays:,}")
+
+    if (
+        "Gain / Loss" in selected.columns
+        and selected["Gain / Loss"].notna().any()
+    ):
+        gains = selected["Gain / Loss"]
+        c2.metric("Average Gain", f"{gains.mean():.1f} yds")
+        c3.metric("Longest Play", f"{gains.max():.1f} yds")
+        c4.metric("Shortest Play", f"{gains.min():.1f} yds")
+    else:
+        c2.metric("Average Gain", "N/A")
+        c3.metric("Longest Play", "N/A")
+        c4.metric("Shortest Play", "N/A")
+
+    st.caption(
+        "Usage percentages include every play in the selected "
+        "formation. Blank values appear as Not recorded. "
+        "Gain statistics use only plays with a numeric "
+        "gain/loss value."
+    )
+
+    fields = [
+        "Play Direction",
+        "Gap / Zone Scheme",
+        "Launch Point",
+        "RB Path",
+        "Play Call",
+    ]
+
+    for field in fields:
+        st.divider()
+        st.subheader(field)
+
+        if field not in selected.columns:
+            st.info(
+                f"Choose an Excel column for {field} "
+                "in the mapping above."
+            )
+            continue
+
+        working = selected.copy()
+        working[field] = working[field].fillna(
+            "Not recorded"
+        )
+
+        aggregations = {
+            "Plays": (field, "size"),
+        }
+
+        if "Gain / Loss" in working.columns:
+            aggregations.update({
+                "Recorded Gains": ("Gain / Loss", "count"),
+                "Average Gain": ("Gain / Loss", "mean"),
+                "Longest Play": ("Gain / Loss", "max"),
+                "Shortest Play": ("Gain / Loss", "min"),
+            })
+
+        summary = (
+            working.groupby(field, dropna=False)
+            .agg(**aggregations)
+            .reset_index()
+            .sort_values("Plays", ascending=False)
+        )
+
+        summary["Usage %"] = (
+            summary["Plays"] / total_plays * 100
+        )
+
+        chart_data = summary.sort_values("Plays")
 
         fig = px.bar(
-            summary.sort_values("plays"),
-            x="plays",
-            y="concept",
+            chart_data,
+            x="Plays",
+            y=field,
             orientation="h",
-            text="percentage",
-            title=f"Plays Run from {selected_formation}",
-            labels={"plays": "Number of Plays", "concept": "Play"},
-            color="plays",
-            color_continuous_scale="Blues",
-            template="plotly_dark",
+            text="Usage %",
+            custom_data=["Usage %"],
+            title=f"{field} — {selected_formation}",
+            color_discrete_sequence=["#7FDBFF"],
         )
         fig.update_traces(
             texttemplate="%{text:.1f}%",
             textposition="outside",
+            cliponaxis=False,
             hovertemplate=(
-                "<b>Play:</b> %{y}<br><b>Plays:</b> %{x}<br>"
-                "<b>Usage:</b> %{text:.1f}%<extra></extra>"
+                "<b>%{y}</b><br>"
+                "Plays: %{x}<br>"
+                "Usage: %{customdata[0]:.1f}%"
+                "<extra></extra>"
             ),
         )
-        fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
-        st.plotly_chart(themed_chart(fig), use_container_width=True, theme=None)
+        fig.update_layout(
+            yaxis_title=None,
+            height=max(320, len(summary) * 32 + 120),
+            margin={"r": 70},
+        )
+
+        show_chart(
+            fig,
+            key=f"formation_tendencies_chart_{field}",
+        )
+
         st.dataframe(
             summary,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "concept": "Play",
-                "plays": st.column_config.NumberColumn("Plays", format="%d"),
-                "percentage": st.column_config.NumberColumn("Usage %", format="%.1f%%"),
-                "average_gain": st.column_config.NumberColumn("Average Gain", format="%.1f yds"),
-                "longest_play": st.column_config.NumberColumn("Longest Play", format="%.1f yds"),
-                "shortest_play": st.column_config.NumberColumn("Shortest Play", format="%.1f yds"),
+                "Plays": st.column_config.NumberColumn(
+                    "Plays", format="%d"
+                ),
+                "Usage %": st.column_config.NumberColumn(
+                    "Usage %", format="%.1f%%"
+                ),
+                "Recorded Gains": st.column_config.NumberColumn(
+                    "Recorded Gains", format="%d"
+                ),
+                "Average Gain": st.column_config.NumberColumn(
+                    "Average Gain", format="%.1f yds"
+                ),
+                "Longest Play": st.column_config.NumberColumn(
+                    "Longest Play", format="%.1f yds"
+                ),
+                "Shortest Play": st.column_config.NumberColumn(
+                    "Shortest Play", format="%.1f yds"
+                ),
             },
         )
-    with tab3:
-        st.subheader("Formation Averages")
-        st.write(
-            "Compare every formation by average gain, shortest gain, "
-            "longest gain, and number of plays."
+
+    with st.expander("View plays from this formation"):
+        st.dataframe(
+            selected,
+            use_container_width=True,
+            hide_index=True,
         )
 
-        if "gain_loss" not in df.columns or not df["gain_loss"].notna().any():
-            st.warning(
-                "Formation averages require a gain/loss column such as "
-                "GN/LS, Gain Loss, or Gain/Loss."
-            )
-        else:
-            formation_averages = (
-                df.groupby("formation", dropna=False)
-                .agg(
-                    average_gain=("gain_loss", "mean"),
-                    shortest_gain=("gain_loss", "min"),
-                    longest_gain=("gain_loss", "max"),
-                    number_of_plays=("formation", "size"),
-                )
-                .reset_index()
-                .sort_values(
-                    ["average_gain", "number_of_plays"],
-                    ascending=[False, False],
-                )
-            )
 
-            formation_averages["average_gain"] = formation_averages["average_gain"].round(1)
-            formation_averages["shortest_gain"] = formation_averages["shortest_gain"].round(1)
-            formation_averages["longest_gain"] = formation_averages["longest_gain"].round(1)
-
-            fig = px.bar(
-                formation_averages.sort_values("average_gain"),
-                x="average_gain",
-                y="formation",
-                orientation="h",
-                color="average_gain",
-                color_continuous_scale="Blues",
-                text="average_gain",
-                title="Average Gain by Formation",
-                labels={
-                    "formation": "Formation",
-                    "average_gain": "Average Gain",
-                },
-                template="plotly_dark",
-                custom_data=[
-                    "number_of_plays",
-                    "shortest_gain",
-                    "longest_gain",
-                ],
-            )
-            fig.update_traces(
-                texttemplate="%{text:.1f} yds",
-                textposition="outside",
-                hovertemplate=(
-                    "<b>Formation:</b> %{y}<br>"
-                    "<b>Average Gain:</b> %{x:.1f} yds<br>"
-                    "<b>Number of Plays:</b> %{customdata[0]}<br>"
-                    "<b>Shortest Gain:</b> %{customdata[1]:.1f} yds<br>"
-                    "<b>Longest Gain:</b> %{customdata[2]:.1f} yds"
-                    "<extra></extra>"
-                ),
-            )
-            fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
-            st.plotly_chart(
-                themed_chart(fig),
-                use_container_width=True,
-                theme=None,
-            )
-
-            st.dataframe(
-                formation_averages,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "formation": "Formation",
-                    "average_gain": st.column_config.NumberColumn(
-                        "Average Gain", format="%.1f yds"
-                    ),
-                    "shortest_gain": st.column_config.NumberColumn(
-                        "Shortest Gain", format="%.1f yds"
-                    ),
-                    "longest_gain": st.column_config.NumberColumn(
-                        "Longest Gain", format="%.1f yds"
-                    ),
-                    "number_of_plays": st.column_config.NumberColumn(
-                        "Number of Plays", format="%d"
-                    ),
-                },
-            )
-    with tab4:
-        st.subheader("Play Averages")
-        st.write(
-            "Compare every play by average gain, shortest gain, "
-            "longest gain, and number of plays."
-        )
-
-        if "gain_loss" not in df.columns or not df["gain_loss"].notna().any():
-            st.warning(
-                "Play averages require a gain/loss column such as "
-                "GN/LS, Gain Loss, or Gain/Loss."
-            )
-        else:
-            play_averages = (
-                df.groupby("concept", dropna=False)
-                .agg(
-                    average_gain=("gain_loss", "mean"),
-                    shortest_gain=("gain_loss", "min"),
-                    longest_gain=("gain_loss", "max"),
-                    number_of_plays=("concept", "size"),
-                )
-                .reset_index()
-                .sort_values(
-                    ["average_gain", "number_of_plays"],
-                    ascending=[False, False],
-                )
-            )
-
-            play_averages["average_gain"] = play_averages["average_gain"].round(1)
-            play_averages["shortest_gain"] = play_averages["shortest_gain"].round(1)
-            play_averages["longest_gain"] = play_averages["longest_gain"].round(1)
-
-            fig = px.bar(
-                play_averages.sort_values("average_gain"),
-                x="average_gain",
-                y="concept",
-                orientation="h",
-                color="average_gain",
-                color_continuous_scale="Blues",
-                text="average_gain",
-                title="Average Gain by Play",
-                labels={
-                    "concept": "Play",
-                    "average_gain": "Average Gain",
-                },
-                template="plotly_dark",
-                custom_data=[
-                    "number_of_plays",
-                    "shortest_gain",
-                    "longest_gain",
-                ],
-            )
-            fig.update_traces(
-                texttemplate="%{text:.1f} yds",
-                textposition="outside",
-                hovertemplate=(
-                    "<b>Play:</b> %{y}<br>"
-                    "<b>Average Gain:</b> %{x:.1f} yds<br>"
-                    "<b>Number of Plays:</b> %{customdata[0]}<br>"
-                    "<b>Shortest Gain:</b> %{customdata[1]:.1f} yds<br>"
-                    "<b>Longest Gain:</b> %{customdata[2]:.1f} yds"
-                    "<extra></extra>"
-                ),
-            )
-            fig.update_layout(coloraxis_showscale=False, yaxis_title=None)
-            st.plotly_chart(
-                themed_chart(fig),
-                use_container_width=True,
-                theme=None,
-            )
-
-            st.dataframe(
-                play_averages,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "concept": "Play",
-                    "average_gain": st.column_config.NumberColumn(
-                        "Average Gain", format="%.1f yds"
-                    ),
-                    "shortest_gain": st.column_config.NumberColumn(
-                        "Shortest Gain", format="%.1f yds"
-                    ),
-                    "longest_gain": st.column_config.NumberColumn(
-                        "Longest Gain", format="%.1f yds"
-                    ),
-                    "number_of_plays": st.column_config.NumberColumn(
-                        "Number of Plays", format="%d"
-                    ),
-                },
-            )
-
-
+# =========================================================
+# SHARED UPLOAD AND NAVIGATION
+# =========================================================
 def clear_shared_upload():
     st.session_state.pop("shared_upload_bytes", None)
     st.session_state.pop("shared_upload_name", None)
@@ -2046,7 +2656,13 @@ def clear_shared_upload():
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Home", "Basic Dashboard", "Advanced Analytics", "Play Breakdown"],
+    [
+        "Home",
+        "Basic Dashboard",
+        "Advanced Analytics",
+        "Play Breakdown",
+        "Formation Tendencies",
+    ],
     key="active_page",
 )
 
@@ -2060,64 +2676,94 @@ new_upload = st.sidebar.file_uploader(
 )
 
 if new_upload is not None:
-    st.session_state.shared_upload_bytes = new_upload.getvalue()
+    st.session_state.shared_upload_bytes = (
+        new_upload.getvalue()
+    )
     st.session_state.shared_upload_name = new_upload.name
 
 uploaded_file = None
+
 if st.session_state.get("shared_upload_bytes"):
-    uploaded_file = BytesIO(st.session_state.shared_upload_bytes)
-    uploaded_file.name = st.session_state.get("shared_upload_name", "hudl_data.xlsx")
+    uploaded_file = BytesIO(
+        st.session_state.shared_upload_bytes
+    )
+    uploaded_file.name = st.session_state.get(
+        "shared_upload_name", "hudl_data.xlsx"
+    )
+
     st.sidebar.success(f"Using: {uploaded_file.name}")
+
     st.sidebar.button(
         "Clear uploaded file",
         on_click=clear_shared_upload,
         use_container_width=True,
     )
 
+
+# =========================================================
+# GLOBAL GROUPING SETTINGS
+# =========================================================
 st.sidebar.divider()
 st.sidebar.subheader("Dashboard Settings")
+
 st.sidebar.toggle(
     "Group RPO-tagged plays",
     value=True,
     key="ignore_rpo_tag",
     help=(
-        "Remove the (RPO) tag from every play when grouping data. For example, "
-        "Power and Power (RPO) will be counted together."
+        "Remove the (RPO) tag from every play when grouping "
+        "data. For example, Power and Power (RPO) will "
+        "be counted together."
     ),
 )
+
 st.sidebar.toggle(
     "Group plays with leading LT",
     value=True,
     key="group_lt_plays_v2",
     help=(
-        "Remove LT when it appears at the beginning of a play name. "
-        "For example, LT Troff and Troff will be counted together."
+        "Remove LT when it appears at the beginning of a "
+        "play name. For example, LT Troff and Troff "
+        "will be counted together."
     ),
 )
+
 st.sidebar.toggle(
     "Group Read-tagged plays",
     value=True,
     key="group_read_plays_v2",
     help=(
-        "Remove the standalone word Read from play names. For example, "
-        "Counter Read and Counter will be counted together."
+        "Remove the standalone word Read from play names. "
+        "For example, Counter Read and Counter "
+        "will be counted together."
     ),
 )
+
 st.sidebar.toggle(
     "Group numbered play variations",
     value=True,
     key="group_numbered_plays_v2",
     help=(
-        "Remove standalone numbers from play names. For example, "
+        "Remove numbers from play names. For example, "
         "Troff 1 and Troff will be counted together."
     ),
 )
 
+
+# =========================================================
+# PAGE ROUTING
+# =========================================================
 if page == "Basic Dashboard":
     render_basic_dashboard(uploaded_file)
+
 elif page == "Advanced Analytics":
     render_advanced_analytics(uploaded_file)
+
 elif page == "Play Breakdown":
     render_play_breakdown(uploaded_file)
+
+elif page == "Formation Tendencies":
+    render_formation_tendencies(uploaded_file)
+
 else:
     render_home()
