@@ -2312,8 +2312,6 @@ def render_formation_tendencies(uploaded_file):
         st.info("Upload your Excel file in the sidebar.")
         return
 
-    # Sheet1 contains the original plays.
-    # The first two sheets contain Excel pivot tables.
     uploaded_file.seek(0)
     df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
 
@@ -2339,7 +2337,6 @@ def render_formation_tendencies(uploaded_file):
         st.error("Missing columns: " + ", ".join(missing))
         return
 
-    # Keep the original play names to match the Excel pivots.
     for column in required:
         df[column] = (
             df[column]
@@ -2348,56 +2345,92 @@ def render_formation_tendencies(uploaded_file):
             .replace("", pd.NA)
         )
 
-    # Simple filters.
+    # Use the same column names as the existing grouping controls.
+    df = df.rename(columns={
+        "OFF FORM": "formation",
+        "OFF PLAY": "concept",
+    })
+
+    # Create, enable, disable, and remove groups right here.
+    # In Custom Grouping, choose "Formations" to combine formations.
+    render_custom_grouping(df)
+
+    df, active_names = apply_custom_breakdown_groups(df)
+
+    if active_names:
+        st.caption(
+            "Active groups: " + ", ".join(active_names)
+        )
+
+    # Filters are built after grouping, so combined formations
+    # appear as one option.
     col1, col2 = st.columns(2)
 
     with col1:
+        hash_options = ["All"] + sorted(
+            df["HASH"].dropna().unique().tolist()
+        )
+
+        hash_key = "simple_tendencies_hash"
+
+        if st.session_state.get(hash_key, "All") not in hash_options:
+            st.session_state.pop(hash_key, None)
+
         selected_hash = st.selectbox(
             "Hash",
-            ["All"] + sorted(df["HASH"].dropna().unique()),
-            key="simple_tendencies_hash",
+            hash_options,
+            key=hash_key,
         )
 
     if selected_hash != "All":
         df = df[df["HASH"] == selected_hash]
 
     with col2:
+        formation_options = ["All"] + sorted(
+            df["formation"].dropna().unique().tolist()
+        )
+
+        formation_key = "simple_tendencies_formation"
+
+        if (
+            st.session_state.get(formation_key, "All")
+            not in formation_options
+        ):
+            st.session_state.pop(formation_key, None)
+
         selected_formation = st.selectbox(
             "Formation",
-            ["All"] + sorted(
-                df["OFF FORM"].dropna().unique()
-            ),
-            key="simple_tendencies_formation",
+            formation_options,
+            key=formation_key,
         )
 
     if selected_formation != "All":
         df = df[
-            df["OFF FORM"] == selected_formation
+            df["formation"] == selected_formation
         ]
 
     tab1, tab2 = st.tabs(["Gap or Zone", "RB Path"])
 
-    for tab, field in [
-        (tab1, "GAP OR ZONE"),
-        (tab2, "RB PATH"),
+    for tab, field, label in [
+        (tab1, "GAP OR ZONE", "Gap or Zone"),
+        (tab2, "RB PATH", "RB Path"),
     ]:
         with tab:
-            # Excel's Count of field counts recorded values.
             data = df.dropna(
-                subset=["OFF FORM", field]
+                subset=["formation", field]
             ).copy()
 
             if data.empty:
                 st.info("No recorded data for this selection.")
                 continue
 
-            data["OFF PLAY"] = data["OFF PLAY"].fillna(
+            data["concept"] = data["concept"].fillna(
                 "(blank)"
             )
 
-            # Formation totals drive the chart.
+            # Chart: counts and percentages by formation.
             formation_counts = pd.crosstab(
-                data["OFF FORM"],
+                data["formation"],
                 data[field],
             )
 
@@ -2429,7 +2462,7 @@ def render_formation_tendencies(uploaded_file):
                 y="Plays",
                 color="Category",
                 barmode="stack",
-                title=f"{tab1.label if False else field.title()} by Formation",
+                title=f"{label} by Formation",
                 custom_data=["Percentage"],
                 color_discrete_sequence=[
                     "#7FDBFF",
@@ -2452,22 +2485,24 @@ def render_formation_tendencies(uploaded_file):
                 key=f"simple_tendencies_{field}",
             )
 
-            # Formation + play rows, like the Excel pivots.
+            # Table: formation and play call, like Excel.
             counts = pd.crosstab(
                 index=[
-                    data["OFF FORM"],
-                    data["OFF PLAY"],
+                    data["formation"],
+                    data["concept"],
                 ],
                 columns=data[field],
             )
 
             counts.index.names = [
-                "Formation", "Play Call"
+                "Formation",
+                "Play Call",
             ]
             counts.columns.name = None
 
             percentages = counts.div(
-                counts.sum(axis=1), axis=0
+                counts.sum(axis=1),
+                axis=0,
             ) * 100
 
             summary = pd.DataFrame(index=counts.index)
@@ -2495,8 +2530,8 @@ def render_formation_tendencies(uploaded_file):
             )
 
             st.caption(
-                "Percentages use plays with a recorded value "
-                "for this field, matching Excel's Count calculation."
+                "Percentages use plays with a recorded "
+                "value for this field."
             )
 
 
