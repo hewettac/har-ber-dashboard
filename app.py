@@ -2307,342 +2307,197 @@ def render_play_breakdown(uploaded_file):
 # =========================================================
 def render_formation_tendencies(uploaded_file):
     st.title("Formation Tendencies")
-    st.caption(
-        "Explore play direction, gap or zone scheme, launch "
-        "point, RB path, and play call by formation."
-    )
 
     if uploaded_file is None:
-        st.info(
-            "Upload a Hudl Excel file from the sidebar to begin."
-        )
+        st.info("Upload your Excel file in the sidebar.")
         return
 
-    # Read the original headers so they remain visible
-    # in the mapping selectors.
-    df = read_uploaded_excel(uploaded_file)
-    columns = df.columns.tolist()
+    # Sheet1 contains the original plays.
+    # The first two sheets contain Excel pivot tables.
+    uploaded_file.seek(0)
+    df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
 
-    def normalize_header(value):
-        return " ".join(
-            str(value).lower().strip()
-            .replace("_", " ")
-            .replace("-", " ")
-            .split()
-        )
-
-    aliases = {
-        "Formation": [
-            "formation", "off form", "off formation",
-        ],
-        "Play Direction": [
-            "play direction", "play dir", "direction",
-        ],
-        "Gap / Zone Scheme": [
-            "gap or zone scheme",
-            "gap/zone scheme",
-            "gap / zone scheme",
-            "gap zone scheme",
-            "gap/zone",
-            "gap / zone",
-            "gap zone",
-            "gap scheme",
-            "zone scheme",
-            "scheme",
-            "gap",
-        ],
-        "Launch Point": [
-            "launch point", "launch",
-        ],
-        "RB Path": [
-            "rb path", "running back path", "rb track",
-        ],
-        "Play Call": [
-            "play call", "off play", "concept",
-            "play concept", "play",
-        ],
-        "Gain / Loss": [
-            "gain loss", "gain/loss", "gain / loss", "gn/ls",
-        ],
-    }
-
-    options = [None] + columns
-    mapped = {}
-
-    with st.expander(
-        "Excel column mapping", expanded=True
-    ):
-        st.caption(
-            "Check the suggested columns. Choose the correct "
-            "Excel column for any field that was not detected."
-        )
-
-        for label, variants in aliases.items():
-            normalized_variants = {
-                normalize_header(value)
-                for value in variants
-            }
-
-            detected = next(
-                (
-                    column for column in columns
-                    if normalize_header(column)
-                    in normalized_variants
-                ),
-                None,
-            )
-
-            widget_key = (
-                f"formation_tendencies_mapping_{label}"
-            )
-
-            # Reset a previous mapping if a new upload no
-            # longer contains the selected column.
-            if (
-                widget_key in st.session_state
-                and st.session_state[widget_key]
-                not in options
-            ):
-                st.session_state.pop(widget_key)
-
-            mapped[label] = st.selectbox(
-                label,
-                options,
-                index=options.index(detected),
-                format_func=lambda value: (
-                    "Not mapped"
-                    if value is None else str(value)
-                ),
-                key=widget_key,
-            )
-
-    if mapped["Formation"] is None:
-        st.warning(
-            "Choose your formation column above to begin."
-        )
-        return
-
-    # Build an independent analysis frame. Rows with a
-    # formation remain included even if another field is blank.
-    analysis = pd.DataFrame(index=df.index)
-
-    for label, source_column in mapped.items():
-        if source_column is None:
-            continue
-
-        if label == "Gain / Loss":
-            analysis[label] = pd.to_numeric(
-                df[source_column], errors="coerce"
-            )
-        else:
-            analysis[label] = (
-                df[source_column]
-                .astype("string")
-                .str.strip()
-                .replace("", pd.NA)
-            )
-
-    analysis = analysis.dropna(subset=["Formation"])
-
-    # Use the existing global switches on play calls.
-    if "Play Call" in analysis.columns:
-        grouped_calls = apply_global_play_settings(
-            analysis[["Play Call"]].rename(
-                columns={"Play Call": "concept"}
-            )
-        )
-        analysis["Play Call"] = (
-            grouped_calls["concept"].replace("", pd.NA)
-        )
-
-    # Honor custom groups created in Play Breakdown.
-    for group in st.session_state.get(
-        "custom_breakdown_groups", []
-    ):
-        enabled = st.session_state.get(
-            f"custom_group_enabled_{group['id']}",
-            group.get("enabled", True),
-        )
-
-        target = {
-            "formation": "Formation",
-            "concept": "Play Call",
-        }.get(group["column"])
-
-        if enabled and target in analysis.columns:
-            analysis.loc[
-                analysis[target].isin(group["items"]),
-                target,
-            ] = group["name"]
-
-    if analysis.empty:
-        st.warning(
-            "No plays with a recorded formation were found."
-        )
-        return
-
-    formation_options = sorted(
-        analysis["Formation"].unique().tolist()
-    )
-
-    selection_key = (
-        "formation_tendencies_selected_formation"
-    )
-    if (
-        selection_key in st.session_state
-        and st.session_state[selection_key]
-        not in formation_options
-    ):
-        st.session_state.pop(selection_key)
-
-    selected_formation = st.selectbox(
-        "Select a formation",
-        formation_options,
-        key=selection_key,
-    )
-
-    selected = analysis[
-        analysis["Formation"] == selected_formation
-    ].copy()
-
-    total_plays = len(selected)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Plays", f"{total_plays:,}")
-
-    if (
-        "Gain / Loss" in selected.columns
-        and selected["Gain / Loss"].notna().any()
-    ):
-        gains = selected["Gain / Loss"]
-        c2.metric("Average Gain", f"{gains.mean():.1f} yds")
-        c3.metric("Longest Play", f"{gains.max():.1f} yds")
-        c4.metric("Shortest Play", f"{gains.min():.1f} yds")
-    else:
-        c2.metric("Average Gain", "N/A")
-        c3.metric("Longest Play", "N/A")
-        c4.metric("Shortest Play", "N/A")
-
-    st.caption(
-        "Usage percentages include every play in the selected "
-        "formation. Blank values appear as Not recorded. "
-        "Gain statistics use only plays with a numeric "
-        "gain/loss value."
-    )
-
-    fields = [
-        "Play Direction",
-        "Gap / Zone Scheme",
-        "Launch Point",
-        "RB Path",
-        "Play Call",
+    df.columns = [
+        str(column).strip().upper()
+        for column in df.columns
     ]
 
-    for field in fields:
-        st.divider()
-        st.subheader(field)
+    required = [
+        "OFF FORM",
+        "OFF PLAY",
+        "HASH",
+        "GAP OR ZONE",
+        "RB PATH",
+    ]
 
-        if field not in selected.columns:
-            st.info(
-                f"Choose an Excel column for {field} "
-                "in the mapping above."
-            )
-            continue
+    missing = [
+        column for column in required
+        if column not in df.columns
+    ]
 
-        working = selected.copy()
-        working[field] = working[field].fillna(
-            "Not recorded"
+    if missing:
+        st.error("Missing columns: " + ", ".join(missing))
+        return
+
+    # Keep the original play names to match the Excel pivots.
+    for column in required:
+        df[column] = (
+            df[column]
+            .astype("string")
+            .str.strip()
+            .replace("", pd.NA)
         )
 
-        aggregations = {
-            "Plays": (field, "size"),
-        }
+    # Simple filters.
+    col1, col2 = st.columns(2)
 
-        if "Gain / Loss" in working.columns:
-            aggregations.update({
-                "Recorded Gains": ("Gain / Loss", "count"),
-                "Average Gain": ("Gain / Loss", "mean"),
-                "Longest Play": ("Gain / Loss", "max"),
-                "Shortest Play": ("Gain / Loss", "min"),
-            })
-
-        summary = (
-            working.groupby(field, dropna=False)
-            .agg(**aggregations)
-            .reset_index()
-            .sort_values("Plays", ascending=False)
+    with col1:
+        selected_hash = st.selectbox(
+            "Hash",
+            ["All"] + sorted(df["HASH"].dropna().unique()),
+            key="simple_tendencies_hash",
         )
 
-        summary["Usage %"] = (
-            summary["Plays"] / total_plays * 100
-        )
+    if selected_hash != "All":
+        df = df[df["HASH"] == selected_hash]
 
-        chart_data = summary.sort_values("Plays")
-
-        fig = px.bar(
-            chart_data,
-            x="Plays",
-            y=field,
-            orientation="h",
-            text="Usage %",
-            custom_data=["Usage %"],
-            title=f"{field} — {selected_formation}",
-            color_discrete_sequence=["#7FDBFF"],
-        )
-        fig.update_traces(
-            texttemplate="%{text:.1f}%",
-            textposition="outside",
-            cliponaxis=False,
-            hovertemplate=(
-                "<b>%{y}</b><br>"
-                "Plays: %{x}<br>"
-                "Usage: %{customdata[0]:.1f}%"
-                "<extra></extra>"
+    with col2:
+        selected_formation = st.selectbox(
+            "Formation",
+            ["All"] + sorted(
+                df["OFF FORM"].dropna().unique()
             ),
-        )
-        fig.update_layout(
-            yaxis_title=None,
-            height=max(320, len(summary) * 32 + 120),
-            margin={"r": 70},
+            key="simple_tendencies_formation",
         )
 
-        show_chart(
-            fig,
-            key=f"formation_tendencies_chart_{field}",
-        )
+    if selected_formation != "All":
+        df = df[
+            df["OFF FORM"] == selected_formation
+        ]
 
-        st.dataframe(
-            summary,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Plays": st.column_config.NumberColumn(
-                    "Plays", format="%d"
-                ),
-                "Usage %": st.column_config.NumberColumn(
-                    "Usage %", format="%.1f%%"
-                ),
-                "Recorded Gains": st.column_config.NumberColumn(
-                    "Recorded Gains", format="%d"
-                ),
-                "Average Gain": st.column_config.NumberColumn(
-                    "Average Gain", format="%.1f yds"
-                ),
-                "Longest Play": st.column_config.NumberColumn(
-                    "Longest Play", format="%.1f yds"
-                ),
-                "Shortest Play": st.column_config.NumberColumn(
-                    "Shortest Play", format="%.1f yds"
-                ),
-            },
-        )
+    tab1, tab2 = st.tabs(["Gap or Zone", "RB Path"])
 
-    with st.expander("View plays from this formation"):
-        st.dataframe(
-            selected,
-            use_container_width=True,
-            hide_index=True,
-        )
+    for tab, field in [
+        (tab1, "GAP OR ZONE"),
+        (tab2, "RB PATH"),
+    ]:
+        with tab:
+            # Excel's Count of field counts recorded values.
+            data = df.dropna(
+                subset=["OFF FORM", field]
+            ).copy()
+
+            if data.empty:
+                st.info("No recorded data for this selection.")
+                continue
+
+            data["OFF PLAY"] = data["OFF PLAY"].fillna(
+                "(blank)"
+            )
+
+            # Formation totals drive the chart.
+            formation_counts = pd.crosstab(
+                data["OFF FORM"],
+                data[field],
+            )
+
+            chart_data = (
+                formation_counts
+                .rename_axis(
+                    index="Formation",
+                    columns="Category",
+                )
+                .reset_index()
+                .melt(
+                    id_vars="Formation",
+                    var_name="Category",
+                    value_name="Plays",
+                )
+            )
+
+            chart_data["Percentage"] = (
+                chart_data["Plays"]
+                / chart_data.groupby("Formation")[
+                    "Plays"
+                ].transform("sum")
+                * 100
+            )
+
+            fig = px.bar(
+                chart_data,
+                x="Formation",
+                y="Plays",
+                color="Category",
+                barmode="stack",
+                title=f"{tab1.label if False else field.title()} by Formation",
+                custom_data=["Percentage"],
+                color_discrete_sequence=[
+                    "#7FDBFF",
+                    "#448FC7",
+                    "#B8CFDF",
+                ],
+            )
+
+            fig.update_traces(
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Count: %{y}<br>"
+                    "Percentage: %{customdata[0]:.1f}%"
+                    "<extra>%{fullData.name}</extra>"
+                )
+            )
+
+            show_chart(
+                fig,
+                key=f"simple_tendencies_{field}",
+            )
+
+            # Formation + play rows, like the Excel pivots.
+            counts = pd.crosstab(
+                index=[
+                    data["OFF FORM"],
+                    data["OFF PLAY"],
+                ],
+                columns=data[field],
+            )
+
+            counts.index.names = [
+                "Formation", "Play Call"
+            ]
+            counts.columns.name = None
+
+            percentages = counts.div(
+                counts.sum(axis=1), axis=0
+            ) * 100
+
+            summary = pd.DataFrame(index=counts.index)
+
+            for category in counts.columns:
+                summary[f"{category} Count"] = counts[category]
+                summary[f"{category} %"] = percentages[
+                    category
+                ].round(1)
+
+            summary["Total"] = counts.sum(axis=1)
+
+            st.dataframe(
+                summary.reset_index(),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    f"{category} %":
+                    st.column_config.NumberColumn(
+                        f"{category} %",
+                        format="%.1f%%",
+                    )
+                    for category in counts.columns
+                },
+            )
+
+            st.caption(
+                "Percentages use plays with a recorded value "
+                "for this field, matching Excel's Count calculation."
+            )
 
 
 # =========================================================
