@@ -2337,6 +2337,11 @@ def render_formation_tendencies(uploaded_file):
         st.error("Missing columns: " + ", ".join(missing))
         return
 
+    if "GN/LS" in df.columns:
+        df["gain_loss"] = pd.to_numeric(
+            df["GN/LS"], errors="coerce"
+        )
+
     for column in required:
         df[column] = (
             df[column]
@@ -2345,14 +2350,12 @@ def render_formation_tendencies(uploaded_file):
             .replace("", pd.NA)
         )
 
-    # Use the same column names as the existing grouping controls.
     df = df.rename(columns={
         "OFF FORM": "formation",
         "OFF PLAY": "concept",
     })
 
-    # Create, enable, disable, and remove groups right here.
-    # In Custom Grouping, choose "Formations" to combine formations.
+    # Create, enable, disable, and remove groups here.
     render_custom_grouping(df)
 
     df, active_names = apply_custom_breakdown_groups(df)
@@ -2362,8 +2365,7 @@ def render_formation_tendencies(uploaded_file):
             "Active groups: " + ", ".join(active_names)
         )
 
-    # Filters are built after grouping, so combined formations
-    # appear as one option.
+    # Filters are created after applying custom groups.
     col1, col2 = st.columns(2)
 
     with col1:
@@ -2373,7 +2375,10 @@ def render_formation_tendencies(uploaded_file):
 
         hash_key = "simple_tendencies_hash"
 
-        if st.session_state.get(hash_key, "All") not in hash_options:
+        if (
+            st.session_state.get(hash_key, "All")
+            not in hash_options
+        ):
             st.session_state.pop(hash_key, None)
 
         selected_hash = st.selectbox(
@@ -2428,7 +2433,9 @@ def render_formation_tendencies(uploaded_file):
                 "(blank)"
             )
 
-            # Chart: counts and percentages by formation.
+            # ---------------------------------------------
+            # Chart: breakdown by formation
+            # ---------------------------------------------
             formation_counts = pd.crosstab(
                 data["formation"],
                 data[field],
@@ -2485,19 +2492,26 @@ def render_formation_tendencies(uploaded_file):
                 key=f"simple_tendencies_{field}",
             )
 
-            # Table: formation and play call, like Excel.
-            counts = pd.crosstab(
-                index=[
-                    data["formation"],
-                    data["concept"],
-                ],
-                columns=data[field],
-            )
+            # ---------------------------------------------
+            # Bottom table
+            # All: one row per formation.
+            # Specific formation: one row per play call.
+            # ---------------------------------------------
+            if selected_formation == "All":
+                row_column = "formation"
+                row_label = "Formation"
+                st.subheader("Formation Breakdown")
+            else:
+                row_column = "concept"
+                row_label = "Play Call"
+                st.subheader(
+                    f"Play Breakdown — {selected_formation}"
+                )
 
-            counts.index.names = [
-                "Formation",
-                "Play Call",
-            ]
+            counts = pd.crosstab(
+                data[row_column],
+                data[field],
+            )
             counts.columns.name = None
 
             percentages = counts.div(
@@ -2513,25 +2527,89 @@ def render_formation_tendencies(uploaded_file):
                     category
                 ].round(1)
 
-            summary["Total"] = counts.sum(axis=1)
+            summary["Total Plays"] = counts.sum(axis=1)
+
+            # Add gain/loss statistics when viewing
+            # the play calls from a specific formation.
+            if (
+                selected_formation != "All"
+                and "gain_loss" in data.columns
+            ):
+                gain_stats = (
+                    data.groupby(row_column)
+                    .agg(
+                        recorded_gains=("gain_loss", "count"),
+                        average_gain=("gain_loss", "mean"),
+                        shortest_gain=("gain_loss", "min"),
+                        longest_gain=("gain_loss", "max"),
+                        total_yards=("gain_loss", "sum"),
+                    )
+                )
+
+                # Missing gains should not appear as zero yards.
+                gain_stats.loc[
+                    gain_stats["recorded_gains"] == 0,
+                    "total_yards",
+                ] = float("nan")
+
+                gain_stats = gain_stats.rename(columns={
+                    "recorded_gains": "Recorded Gains",
+                    "average_gain": "Average Gain",
+                    "shortest_gain": "Shortest Gain",
+                    "longest_gain": "Longest Gain",
+                    "total_yards": "Total Yards",
+                })
+
+                summary = summary.join(gain_stats)
+
+            summary = (
+                summary
+                .sort_values("Total Plays", ascending=False)
+                .rename_axis(row_label)
+                .reset_index()
+            )
+
+            column_config = {
+                f"{category} %":
+                st.column_config.NumberColumn(
+                    f"{category} %",
+                    format="%.1f%%",
+                )
+                for category in counts.columns
+            }
+
+            column_config.update({
+                "Total Plays": st.column_config.NumberColumn(
+                    "Total Plays", format="%d"
+                ),
+                "Recorded Gains": st.column_config.NumberColumn(
+                    "Recorded Gains", format="%d"
+                ),
+                "Average Gain": st.column_config.NumberColumn(
+                    "Average Gain", format="%.1f yds"
+                ),
+                "Shortest Gain": st.column_config.NumberColumn(
+                    "Shortest Gain", format="%.1f yds"
+                ),
+                "Longest Gain": st.column_config.NumberColumn(
+                    "Longest Gain", format="%.1f yds"
+                ),
+                "Total Yards": st.column_config.NumberColumn(
+                    "Total Yards", format="%.1f yds"
+                ),
+            })
 
             st.dataframe(
-                summary.reset_index(),
+                summary,
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    f"{category} %":
-                    st.column_config.NumberColumn(
-                        f"{category} %",
-                        format="%.1f%%",
-                    )
-                    for category in counts.columns
-                },
+                column_config=column_config,
             )
 
             st.caption(
-                "Percentages use plays with a recorded "
-                "value for this field."
+                f"Counts and percentages include plays with a "
+                f"recorded {label} value. Gain statistics use "
+                "those same plays and exclude missing gains."
             )
 
 
