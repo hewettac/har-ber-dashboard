@@ -2355,17 +2355,90 @@ def render_formation_tendencies(uploaded_file):
         "OFF PLAY": "concept",
     })
 
-    # Create, enable, disable, and remove groups here.
+    # ---------------------------------------------
+    # Automatic formation grouping switches
+    # ---------------------------------------------
+    col_lt, col_numbers = st.columns(2)
+
+    with col_lt:
+        group_lt = st.toggle(
+            "Combine LT formations",
+            value=True,
+            key="tendencies_auto_group_lt",
+            help=(
+                "Combine LT DOS with DOS and "
+                "LT TRIO BACK with TRIO BACK."
+            ),
+        )
+
+    with col_numbers:
+        group_numbers = st.toggle(
+            "Combine numbered formations as EMPTY",
+            value=True,
+            key="tendencies_auto_group_numbers",
+            help=(
+                "Combine DING 1 and DING 2 as DING EMPTY. "
+                "Numbered groups remain separate from "
+                "unnumbered formations."
+            ),
+        )
+
+    # Start from the uploaded names on every rerun,
+    # so turning a switch off restores separate formations.
+    formations = (
+        df["formation"]
+        .astype("string")
+        .str.upper()
+        .str.strip()
+        .str.replace(r"\s+", " ", regex=True)
+    )
+
+    if group_lt:
+        formations = formations.str.replace(
+            r"^LT\b[\s_-]*",
+            "",
+            regex=True,
+        )
+
+    if group_numbers:
+        numbered = formations.str.contains(
+            r"\b\d+\b",
+            regex=True,
+            na=False,
+        )
+
+        numbered_names = (
+            formations.loc[numbered]
+            .str.replace(r"\b\d+\b", "", regex=True)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip(" -_/")
+            .str.replace(r"\s+EMPTY$", "", regex=True)
+        )
+
+        formations.loc[numbered] = numbered_names + " EMPTY"
+
+    df["formation"] = formations.replace("", pd.NA)
+
+    # ---------------------------------------------
+    # Additional manual grouping
+    # ---------------------------------------------
+    st.caption(
+        "Use Custom Grouping for additional combinations. "
+        "Manual groups apply independently of the switches above."
+    )
+
     render_custom_grouping(df)
 
     df, active_names = apply_custom_breakdown_groups(df)
 
     if active_names:
         st.caption(
-            "Active groups: " + ", ".join(active_names)
+            "Active custom groups: " + ", ".join(active_names)
         )
 
-    # Filters are created after applying custom groups.
+    # ---------------------------------------------
+    # Filters
+    # ---------------------------------------------
     col1, col2 = st.columns(2)
 
     with col1:
@@ -2529,8 +2602,8 @@ def render_formation_tendencies(uploaded_file):
 
             summary["Total Plays"] = counts.sum(axis=1)
 
-            # Add gain/loss statistics when viewing
-            # the play calls from a specific formation.
+            # Add gain/loss statistics when viewing the
+            # play calls from a specific formation.
             if (
                 selected_formation != "All"
                 and "gain_loss" in data.columns
@@ -2546,7 +2619,6 @@ def render_formation_tendencies(uploaded_file):
                     )
                 )
 
-                # Missing gains should not appear as zero yards.
                 gain_stats.loc[
                     gain_stats["recorded_gains"] == 0,
                     "total_yards",
