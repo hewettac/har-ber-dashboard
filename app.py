@@ -2347,7 +2347,24 @@ def render_formation_tendencies(uploaded_file):
             .str.strip()
             .replace("", pd.NA)
         )
+        # Apply enabled manual formation groups from Play Breakdown.
+    # Play calls keep their original names.
+    for group in st.session_state.get(
+        "custom_breakdown_groups", []
+    ):
+        if group["column"] != "formation":
+            continue
 
+        enabled = st.session_state.get(
+            f"custom_group_enabled_{group['id']}",
+            group.get("enabled", True),
+        )
+
+        if enabled:
+            df.loc[
+                df["OFF FORM"].isin(group["items"]),
+                "OFF FORM",
+            ] = group["name"]
     # Simple filters.
     col1, col2 = st.columns(2)
 
