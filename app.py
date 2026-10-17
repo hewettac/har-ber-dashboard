@@ -2794,7 +2794,7 @@ def render_formation_tendencies(uploaded_file):
             "Direction L %",
             "Direction R %",
             "At Strength %",
-            "Away from Strength %",
+            "Away From Strength %",
         ]
 
         st.dataframe(
