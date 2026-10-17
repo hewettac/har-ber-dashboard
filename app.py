@@ -2787,20 +2787,22 @@ def render_formation_tendencies(uploaded_file):
             "No strength or direction data for this selection."
         )
     else:
-        strength_summary = (
-            pd.DataFrame(rows)
-            .sort_values("Total Plays", ascending=False)
-            .reset_index(drop=True)
-        )
+                strength_summary = strength_summary.rename(columns={
+            "Strength BAL %": "Balanced %",
+        })
 
-        percentage_columns = [
-            column
-            for column in strength_summary.columns
-            if column.endswith("%")
+        display_columns = [
+            group_label,
+            "Strength L %",
+            "Strength R %",
+            "Balanced %",
+            "Direction L %",
+            "Direction R %",
+            "At Strength %",
         ]
 
         st.dataframe(
-            strength_summary,
+            strength_summary[display_columns],
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -2808,7 +2810,8 @@ def render_formation_tendencies(uploaded_file):
                     column,
                     format="%.1f%%",
                 )
-                for column in percentage_columns
+                for column in display_columns
+                if column != group_label
             },
         )
 
