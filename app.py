@@ -2604,8 +2604,7 @@ def render_formation_tendencies(uploaded_file):
 
             summary["Total Plays"] = counts.sum(axis=1)
 
-            # Gain/loss statistics for play calls within
-            # a selected formation.
+            # Gain/loss statistics for a selected formation.
             if (
                 selected_formation != "All"
                 and "gain_loss" in data.columns
@@ -2687,13 +2686,13 @@ def render_formation_tendencies(uploaded_file):
             )
 
     # ---------------------------------------------
-    # Second table: strength and play direction
+    # Second table: strength and direction percentages
     # ---------------------------------------------
     st.divider()
     st.subheader("Strength & Play Direction")
 
-    # Use all filtered plays, regardless of whether
-    # gap/zone or RB path was recorded.
+    # Include all filtered plays, even if gap/zone
+    # or RB path was not recorded.
     strength_data = df.dropna(
         subset=["formation"]
     ).copy()
@@ -2725,40 +2724,36 @@ def render_formation_tendencies(uploaded_file):
 
         row = {
             group_label: name,
-            "Total Plays": len(plays),
-            "Recorded Strength": strength_total,
-            "Recorded Direction": direction_total,
         }
 
-        # Strength counts and percentages.
-        for side in ["L", "R", "BAL"]:
+        for side, label in [
+            ("L", "Strength L %"),
+            ("R", "Strength R %"),
+            ("BAL", "Balanced %"),
+        ]:
             count = int(
                 strength.eq(side).fillna(False).sum()
             )
 
-            row[f"Strength {side} Count"] = count
-            row[f"Strength {side} %"] = (
+            row[label] = (
                 count / strength_total * 100
                 if strength_total
                 else float("nan")
             )
 
-        # Play-direction counts and percentages.
         for side in ["L", "R"]:
             count = int(
                 direction.eq(side).fillna(False).sum()
             )
 
-            row[f"Direction {side} Count"] = count
             row[f"Direction {side} %"] = (
                 count / direction_total * 100
                 if direction_total
                 else float("nan")
             )
 
-        # At Strength % compares strength and direction
-        # on the same play. BAL and missing values
-        # are excluded from this calculation.
+        # Compare strength and direction on the same play.
+        # Exclude balanced strength and missing directions.
         comparable = (
             strength.isin(["L", "R"])
             & valid_direction
@@ -2772,8 +2767,6 @@ def render_formation_tendencies(uploaded_file):
         eligible_count = int(comparable.sum())
         match_count = int(matched.sum())
 
-        row["Eligible Plays"] = eligible_count
-        row["At Strength Count"] = match_count
         row["At Strength %"] = (
             match_count / eligible_count * 100
             if eligible_count
@@ -2787,9 +2780,7 @@ def render_formation_tendencies(uploaded_file):
             "No strength or direction data for this selection."
         )
     else:
-                strength_summary = strength_summary.rename(columns={
-            "Strength BAL %": "Balanced %",
-        })
+        strength_summary = pd.DataFrame(rows)
 
         display_columns = [
             group_label,
@@ -2816,11 +2807,9 @@ def render_formation_tendencies(uploaded_file):
         )
 
         st.caption(
-            "Strength percentages use recorded L/R/BAL values. "
-            "Direction percentages use recorded L/R values. "
-            "At Strength % is the percentage of eligible plays "
-            "where play direction matches offensive strength. "
-            "Eligible plays must have L or R recorded for both."
+            "Strength and direction percentages use their "
+            "recorded values. At Strength % shows how often "
+            "direction matches strength when both are L or R."
         )
 
 
