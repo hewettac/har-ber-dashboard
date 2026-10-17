@@ -2772,7 +2772,11 @@ def render_formation_tendencies(uploaded_file):
             if eligible_count
             else float("nan")
         )
-
+        row["Away From Strength %"] = (
+            100 - row["At Strength %"]
+            if eligible_count
+            else float("nan")
+        )
         rows.append(row)
 
     if not rows:
