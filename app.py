@@ -2326,6 +2326,8 @@ def render_formation_tendencies(uploaded_file):
         "HASH",
         "GAP OR ZONE",
         "RB PATH",
+        "OFF STR",
+        "PLAY DIR",
     ]
 
     missing = [
@@ -2349,6 +2351,9 @@ def render_formation_tendencies(uploaded_file):
             .str.strip()
             .replace("", pd.NA)
         )
+
+    for column in ["OFF STR", "PLAY DIR"]:
+        df[column] = df[column].str.upper()
 
     df = df.rename(columns={
         "OFF FORM": "formation",
@@ -2378,13 +2383,12 @@ def render_formation_tendencies(uploaded_file):
             key="tendencies_auto_group_numbers",
             help=(
                 "Combine DING 1 and DING 2 as DING EMPTY. "
-                "Numbered groups remain separate from "
+                "Numbered groups stay separate from "
                 "unnumbered formations."
             ),
         )
 
-    # Start from the uploaded names on every rerun,
-    # so turning a switch off restores separate formations.
+    # Start from the uploaded names on every rerun.
     formations = (
         df["formation"]
         .astype("string")
@@ -2487,6 +2491,9 @@ def render_formation_tendencies(uploaded_file):
             df["formation"] == selected_formation
         ]
 
+    # ---------------------------------------------
+    # Gap / Zone and RB Path
+    # ---------------------------------------------
     tab1, tab2 = st.tabs(["Gap or Zone", "RB Path"])
 
     for tab, field, label in [
@@ -2506,9 +2513,7 @@ def render_formation_tendencies(uploaded_file):
                 "(blank)"
             )
 
-            # ---------------------------------------------
-            # Chart: breakdown by formation
-            # ---------------------------------------------
+            # Chart: category counts by formation.
             formation_counts = pd.crosstab(
                 data["formation"],
                 data[field],
@@ -2565,11 +2570,8 @@ def render_formation_tendencies(uploaded_file):
                 key=f"simple_tendencies_{field}",
             )
 
-            # ---------------------------------------------
-            # Bottom table
             # All: one row per formation.
             # Specific formation: one row per play call.
-            # ---------------------------------------------
             if selected_formation == "All":
                 row_column = "formation"
                 row_label = "Formation"
@@ -2602,8 +2604,8 @@ def render_formation_tendencies(uploaded_file):
 
             summary["Total Plays"] = counts.sum(axis=1)
 
-            # Add gain/loss statistics when viewing the
-            # play calls from a specific formation.
+            # Gain/loss statistics for play calls within
+            # a selected formation.
             if (
                 selected_formation != "All"
                 and "gain_loss" in data.columns
@@ -2683,6 +2685,140 @@ def render_formation_tendencies(uploaded_file):
                 f"recorded {label} value. Gain statistics use "
                 "those same plays and exclude missing gains."
             )
+
+    # ---------------------------------------------
+    # Second table: strength and play direction
+    # ---------------------------------------------
+    st.divider()
+    st.subheader("Strength & Play Direction")
+
+    # Use all filtered plays, regardless of whether
+    # gap/zone or RB path was recorded.
+    strength_data = df.dropna(
+        subset=["formation"]
+    ).copy()
+
+    strength_data["concept"] = (
+        strength_data["concept"].fillna("(blank)")
+    )
+
+    if selected_formation == "All":
+        group_column = "formation"
+        group_label = "Formation"
+    else:
+        group_column = "concept"
+        group_label = "Play Call"
+
+    rows = []
+
+    for name, plays in strength_data.groupby(
+        group_column, sort=True
+    ):
+        strength = plays["OFF STR"]
+        direction = plays["PLAY DIR"]
+
+        valid_strength = strength.isin(["L", "R", "BAL"])
+        valid_direction = direction.isin(["L", "R"])
+
+        strength_total = int(valid_strength.sum())
+        direction_total = int(valid_direction.sum())
+
+        row = {
+            group_label: name,
+            "Total Plays": len(plays),
+            "Recorded Strength": strength_total,
+            "Recorded Direction": direction_total,
+        }
+
+        # Strength counts and percentages.
+        for side in ["L", "R", "BAL"]:
+            count = int(
+                strength.eq(side).fillna(False).sum()
+            )
+
+            row[f"Strength {side} Count"] = count
+            row[f"Strength {side} %"] = (
+                count / strength_total * 100
+                if strength_total
+                else float("nan")
+            )
+
+        # Play-direction counts and percentages.
+        for side in ["L", "R"]:
+            count = int(
+                direction.eq(side).fillna(False).sum()
+            )
+
+            row[f"Direction {side} Count"] = count
+            row[f"Direction {side} %"] = (
+                count / direction_total * 100
+                if direction_total
+                else float("nan")
+            )
+
+        # At Strength % compares strength and direction
+        # on the same play. BAL and missing values
+        # are excluded from this calculation.
+        comparable = (
+            strength.isin(["L", "R"])
+            & valid_direction
+        )
+
+        matched = (
+            comparable
+            & strength.eq(direction).fillna(False)
+        )
+
+        eligible_count = int(comparable.sum())
+        match_count = int(matched.sum())
+
+        row["Eligible Plays"] = eligible_count
+        row["At Strength Count"] = match_count
+        row["At Strength %"] = (
+            match_count / eligible_count * 100
+            if eligible_count
+            else float("nan")
+        )
+
+        rows.append(row)
+
+    if not rows:
+        st.info(
+            "No strength or direction data for this selection."
+        )
+    else:
+        strength_summary = (
+            pd.DataFrame(rows)
+            .sort_values("Total Plays", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        percentage_columns = [
+            column
+            for column in strength_summary.columns
+            if column.endswith("%")
+        ]
+
+        st.dataframe(
+            strength_summary,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                column: st.column_config.NumberColumn(
+                    column,
+                    format="%.1f%%",
+                )
+                for column in percentage_columns
+            },
+        )
+
+        st.caption(
+            "Strength percentages use recorded L/R/BAL values. "
+            "Direction percentages use recorded L/R values. "
+            "At Strength % is the percentage of eligible plays "
+            "where play direction matches offensive strength. "
+            "Eligible plays must have L or R recorded for both."
+        )
 
 
 # =========================================================
