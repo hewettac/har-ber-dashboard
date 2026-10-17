@@ -2701,6 +2701,28 @@ def render_formation_tendencies(uploaded_file):
         strength_data["concept"].fillna("(blank)")
     )
 
+    # Only include formations with at least 4 runs.
+    run_counts = (
+        strength_data[
+            strength_data["PLAY TYPE"]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+            .eq("RUN")
+            .fillna(False)
+        ]
+        .groupby("formation")
+        .size()
+    )
+
+    eligible_formations = run_counts[
+        run_counts > 3
+    ].index
+
+    strength_data = strength_data[
+        strength_data["formation"].isin(eligible_formations)
+    ].copy()
+    
     if selected_formation == "All":
         group_column = "formation"
         group_label = "Formation"
