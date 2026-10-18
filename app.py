@@ -2474,7 +2474,7 @@ def render_formation_tendencies(uploaded_file):
     if selected_hash != "All":
         df = df[df["HASH"] == selected_hash].copy()
 
-    # Snapshot includes all formations within the selected hash.
+    # Snapshot includes all formations for the selected hash.
     overall_data = df.copy()
 
     with col2:
@@ -2614,8 +2614,77 @@ def render_formation_tendencies(uploaded_file):
             },
         )
 
+    def display_pass_zone_chart(data, title, key):
+        if data.empty:
+            st.info(
+                f"No recorded pass zones for {title.lower()}."
+            )
+            return
+
+        counts = (
+            data["PASS ZONE"]
+            .value_counts()
+            .reindex(range(1, 10), fill_value=0)
+        )
+
+        percentages = counts / counts.sum() * 100
+
+        # Top row:    7, 8, 9
+        # Middle:     4, 5, 6
+        # Bottom:     1, 2, 3
+        zone_layout = [
+            [7, 8, 9],
+            [4, 5, 6],
+            [1, 2, 3],
+        ]
+
+        percentage_grid = [
+            [
+                float(percentages.loc[zone])
+                for zone in row
+            ]
+            for row in zone_layout
+        ]
+
+        zone_grid = [
+            [[zone] for zone in row]
+            for row in zone_layout
+        ]
+
+        fig = px.imshow(
+            percentage_grid,
+            x=["Left", "Middle", "Right"],
+            y=["Top", "Middle", "Bottom"],
+            text_auto=".1f",
+            aspect="auto",
+            color_continuous_scale="Blues",
+            range_color=[0, 100],
+            labels={"color": "Passes %"},
+            title=title,
+        )
+
+        fig.update_traces(
+            customdata=zone_grid,
+            texttemplate=(
+                "Zone %{customdata[0]}<br>%{z:.1f}%"
+            ),
+            hovertemplate=(
+                "<b>Zone %{customdata[0]}</b><br>"
+                "Percentage: %{z:.1f}%"
+                "<extra></extra>"
+            ),
+        )
+
+        fig.update_layout(
+            height=420,
+            xaxis_title=None,
+            yaxis_title=None,
+        )
+
+        show_chart(fig, key=key)
+
     # ---------------------------------------------
-    # Five tabs
+    # Six tabs
     # ---------------------------------------------
     (
         snapshot_tab,
@@ -2623,12 +2692,14 @@ def render_formation_tendencies(uploaded_file):
         path_tab,
         strength_tab,
         pass_tab,
+        pass_breakdown_tab,
     ) = st.tabs([
         "Overall Snapshot",
         "Gap or Zone",
         "RB Path",
         "Strength & Direction",
         "Pass Zones",
+        "Pass Zone Breakdown",
     ])
 
     # ---------------------------------------------
@@ -3007,266 +3078,136 @@ def render_formation_tendencies(uploaded_file):
         )
 
     # ---------------------------------------------
-    # Tab 5: Pass Zones
+    # Prepare pass data for Tabs 5 and 6
+    # ---------------------------------------------
+    passes = df[
+        df["PLAY TYPE"].eq("PASS").fillna(False)
+    ].copy()
+
+    zone_data = passes[
+        passes["PASS ZONE"].isin(range(1, 10))
+    ].copy()
+
+    zone_data["PASS ZONE"] = (
+        zone_data["PASS ZONE"].astype(int)
+    )
+
+    # ---------------------------------------------
+    # Tab 5: Pass-zone charts
     # ---------------------------------------------
     with pass_tab:
         st.subheader("Pass Zones")
 
         st.caption(
-            "Select Hash = All to compare left and right hashes. "
-            "The formation selector applies to both charts."
+            "Set Hash = All to include every hash. "
+            "The formation selector applies to all three charts."
         )
 
-        passes = df[
-            df["PLAY TYPE"].eq("PASS").fillna(False)
-        ].copy()
+        left_chart, right_chart = st.columns(2)
 
-        valid_zone = passes["PASS ZONE"].isin(
-            range(1, 10)
+        with left_chart:
+            display_pass_zone_chart(
+                zone_data[
+                    zone_data["HASH"].eq("L").fillna(False)
+                ],
+                "Left Hash",
+                "pass_zones_left_hash",
+            )
+
+        with right_chart:
+            display_pass_zone_chart(
+                zone_data[
+                    zone_data["HASH"].eq("R").fillna(False)
+                ],
+                "Right Hash",
+                "pass_zones_right_hash",
+            )
+
+        st.divider()
+
+        combined_title = (
+            "All Hashes Combined"
+            if selected_hash == "All"
+            else f"Combined View — Hash {selected_hash}"
         )
 
-        zone_data = passes[valid_zone].copy()
-
-        zone_data["PASS ZONE"] = (
-            zone_data["PASS ZONE"].astype(int)
+        display_pass_zone_chart(
+            zone_data,
+            combined_title,
+            "pass_zones_combined",
         )
 
-        c1, c2 = st.columns(2)
-
-        c1.metric(
-            "Total Pass Plays",
-            len(passes),
+        st.caption(
+            "The combined chart includes middle-hash plays "
+            "when Hash = All. Each chart uses only passes "
+            "with a recorded zone from 1 through 9."
         )
 
-        c2.metric(
-            "Passes With Recorded Zone",
-            len(zone_data),
+    # ---------------------------------------------
+    # Tab 6: Percentage-only pass-zone table
+    # ---------------------------------------------
+    with pass_breakdown_tab:
+        st.subheader("Pass Zone Breakdown")
+
+        if selected_formation == "All":
+            row_column = "formation"
+            row_label = "Formation"
+        else:
+            row_column = "concept"
+            row_label = "Play Call"
+
+        table_data = zone_data.dropna(
+            subset=["formation"]
+        ).copy()
+
+        table_data["concept"] = (
+            table_data["concept"].fillna("(blank)")
         )
 
-        if zone_data.empty:
+        if table_data.empty:
             st.info(
-                "No pass plays with a recorded zone "
-                "from 1 through 9 for this selection."
+                "No recorded pass-zone data for this selection."
             )
         else:
-            # ---------------------------------------------
-            # Separate left-hash and right-hash charts
-            # ---------------------------------------------
-            left_chart, right_chart = st.columns(2)
-
-            for container, hash_value, hash_label in [
-                (left_chart, "L", "Left Hash"),
-                (right_chart, "R", "Right Hash"),
-            ]:
-                with container:
-                    hash_data = zone_data[
-                        zone_data["HASH"]
-                        .eq(hash_value)
-                        .fillna(False)
-                    ]
-
-                    st.subheader(hash_label)
-
-                    if hash_data.empty:
-                        st.info(
-                            "No recorded pass zones from "
-                            f"the {hash_label.lower()}."
-                        )
-                        continue
-
-                    zone_counts = (
-                        hash_data["PASS ZONE"]
-                        .value_counts()
-                        .reindex(range(1, 10), fill_value=0)
-                    )
-
-                    zone_percentages = (
-                        zone_counts / zone_counts.sum() * 100
-                    )
-
-                    # Top:       7  8  9
-                    # Middle:    4  5  6
-                    # Bottom:    1  2  3
-                    zone_layout = [
-                        [7, 8, 9],
-                        [4, 5, 6],
-                        [1, 2, 3],
-                    ]
-
-                    percentage_grid = [
-                        [
-                            float(zone_percentages.loc[zone])
-                            for zone in row
-                        ]
-                        for row in zone_layout
-                    ]
-
-                    hover_grid = [
-                        [
-                            [
-                                zone,
-                                int(zone_counts.loc[zone]),
-                            ]
-                            for zone in row
-                        ]
-                        for row in zone_layout
-                    ]
-
-                    fig = px.imshow(
-                        percentage_grid,
-                        x=["Left", "Middle", "Right"],
-                        y=["Top", "Middle", "Bottom"],
-                        text_auto=".1f",
-                        aspect="auto",
-                        color_continuous_scale="Blues",
-                        range_color=[0, 100],
-                        labels={"color": "Passes %"},
-                        title=(
-                            f"{hash_label} — "
-                            f"{len(hash_data)} Zoned Passes"
-                        ),
-                    )
-
-                    fig.update_traces(
-                        customdata=hover_grid,
-                        texttemplate=(
-                            "Zone %{customdata[0]}<br>%{z:.1f}%"
-                        ),
-                        hovertemplate=(
-                            "<b>Zone %{customdata[0]}</b><br>"
-                            "Passes: %{customdata[1]}<br>"
-                            "Percentage: %{z:.1f}%"
-                            "<extra></extra>"
-                        ),
-                    )
-
-                    fig.update_layout(
-                        height=420,
-                        xaxis_title=None,
-                        yaxis_title=None,
-                    )
-
-                    show_chart(
-                        fig,
-                        key=(
-                            "pass_zone_heatmap_hash_"
-                            f"{hash_value}"
-                        ),
-                    )
-
-            # ---------------------------------------------
-            # Formation / play-call breakdown
-            # ---------------------------------------------
-            if selected_formation == "All":
-                row_column = "formation"
-                row_label = "Formation"
-                st.subheader("Pass Zones by Formation")
-            else:
-                row_column = "concept"
-                row_label = "Play Call"
-                st.subheader(
-                    f"Pass Zones by Play — {selected_formation}"
-                )
-
-            table_data = zone_data.dropna(
-                subset=["formation"]
-            ).copy()
-
-            table_data["concept"] = (
-                table_data["concept"].fillna("(blank)")
+            counts = pd.crosstab(
+                table_data[row_column],
+                table_data["PASS ZONE"],
+            ).reindex(
+                columns=range(1, 10),
+                fill_value=0,
             )
 
-            if table_data.empty:
-                st.info(
-                    "The recorded pass zones have "
-                    "no formation labels."
-                )
-            else:
-                counts = pd.crosstab(
-                    table_data[row_column],
-                    table_data["PASS ZONE"],
-                ).reindex(
-                    columns=range(1, 10),
-                    fill_value=0,
-                )
+            percentages = counts.div(
+                counts.sum(axis=1),
+                axis=0,
+            ) * 100
 
-                counts.columns.name = None
+            percentages.columns = [
+                f"Zone {zone} %"
+                for zone in percentages.columns
+            ]
 
-                percentages = counts.div(
-                    counts.sum(axis=1),
-                    axis=0,
-                ) * 100
+            summary = (
+                percentages
+                .rename_axis(row_label)
+                .reset_index()
+            )
 
-                summary = pd.DataFrame(index=counts.index)
-
-                summary["Zoned Passes"] = counts.sum(axis=1)
-
-                for zone in range(1, 10):
-                    summary[f"Zone {zone} Count"] = counts[zone]
-                    summary[f"Zone {zone} %"] = percentages[zone]
-
-                if (
-                    selected_formation != "All"
-                    and "gain_loss" in table_data.columns
-                ):
-                    gain_stats = (
-                        table_data.groupby(row_column)
-                        .agg(
-                            average_gain=("gain_loss", "mean"),
-                            shortest_gain=("gain_loss", "min"),
-                            longest_gain=("gain_loss", "max"),
-                        )
-                        .rename(columns={
-                            "average_gain": "Average Gain",
-                            "shortest_gain": "Shortest Gain",
-                            "longest_gain": "Longest Gain",
-                        })
-                    )
-
-                    summary = summary.join(gain_stats)
-
-                summary = (
-                    summary
-                    .sort_values("Zoned Passes", ascending=False)
-                    .rename_axis(row_label)
-                    .reset_index()
-                )
-
-                column_config = percentage_config(
+            st.dataframe(
+                summary,
+                use_container_width=True,
+                hide_index=True,
+                column_config=percentage_config(
                     summary.columns
-                )
-
-                column_config.update({
-                    "Zoned Passes": st.column_config.NumberColumn(
-                        "Zoned Passes", format="%d"
-                    ),
-                    "Average Gain": st.column_config.NumberColumn(
-                        "Average Gain", format="%.1f yds"
-                    ),
-                    "Shortest Gain": st.column_config.NumberColumn(
-                        "Shortest Gain", format="%.1f yds"
-                    ),
-                    "Longest Gain": st.column_config.NumberColumn(
-                        "Longest Gain", format="%.1f yds"
-                    ),
-                })
-
-                st.dataframe(
-                    summary,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=column_config,
-                )
-
-            st.caption(
-                "Each chart calculates percentages within its "
-                "own hash using pass plays with zones 1–9. "
-                "Middle-hash plays are included in the table "
-                "when Hash = All, but not in either chart. "
-                "Table percentages are calculated within each row. "
-                "The four-run minimum does not apply to this tab."
+                ),
             )
 
+        st.caption(
+            "Each row totals 100% before rounding. "
+            "Select a formation to see its play-call breakdown. "
+            "Missing zones are excluded. "
+            "The four-run minimum does not apply to this tab."
+        )
 # =========================================================
 # SHARED UPLOAD AND NAVIGATION
 # =========================================================
