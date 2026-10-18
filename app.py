@@ -2359,6 +2359,7 @@ def render_formation_tendencies(uploaded_file):
         )
 
     for column in [
+        "HASH",
         "OFF STR",
         "PLAY DIR",
         "PLAY TYPE",
@@ -3011,6 +3012,11 @@ def render_formation_tendencies(uploaded_file):
     with pass_tab:
         st.subheader("Pass Zones")
 
+        st.caption(
+            "Select Hash = All to compare left and right hashes. "
+            "The formation selector applies to both charts."
+        )
+
         passes = df[
             df["PLAY TYPE"].eq("PASS").fillna(False)
         ].copy()
@@ -3044,95 +3050,109 @@ def render_formation_tendencies(uploaded_file):
             )
         else:
             # ---------------------------------------------
-            # Nine-zone percentage chart
-            #
-            # Top:       7  8  9
-            # Middle:    4  5  6
-            # Bottom:    1  2  3
+            # Separate left-hash and right-hash charts
             # ---------------------------------------------
-            zone_counts = (
-                zone_data["PASS ZONE"]
-                .value_counts()
-                .reindex(range(1, 10), fill_value=0)
-            )
+            left_chart, right_chart = st.columns(2)
 
-            zone_percentages = (
-                zone_counts / zone_counts.sum() * 100
-            )
-
-            zone_layout = [
-                [7, 8, 9],
-                [4, 5, 6],
-                [1, 2, 3],
-            ]
-
-            percentage_grid = [
-                [
-                    float(zone_percentages.loc[zone])
-                    for zone in row
-                ]
-                for row in zone_layout
-            ]
-
-            hover_grid = [
-                [
-                    [
-                        zone,
-                        int(zone_counts.loc[zone]),
+            for container, hash_value, hash_label in [
+                (left_chart, "L", "Left Hash"),
+                (right_chart, "R", "Right Hash"),
+            ]:
+                with container:
+                    hash_data = zone_data[
+                        zone_data["HASH"]
+                        .eq(hash_value)
+                        .fillna(False)
                     ]
-                    for zone in row
-                ]
-                for row in zone_layout
-            ]
 
-            title = (
-                "Pass Zone Percentages — All Formations"
-                if selected_formation == "All"
-                else (
-                    "Pass Zone Percentages — "
-                    f"{selected_formation}"
-                )
-            )
+                    st.subheader(hash_label)
 
-            fig = px.imshow(
-                percentage_grid,
-                x=["Left", "Middle", "Right"],
-                y=["Top", "Middle", "Bottom"],
-                text_auto=".1f",
-                aspect="auto",
-                color_continuous_scale="Blues",
-                range_color=[0, 100],
-                labels={
-                    "x": "Horizontal Location",
-                    "y": "Vertical Location",
-                    "color": "Passes %",
-                },
-                title=title,
-            )
+                    if hash_data.empty:
+                        st.info(
+                            "No recorded pass zones from "
+                            f"the {hash_label.lower()}."
+                        )
+                        continue
 
-            fig.update_traces(
-                customdata=hover_grid,
-                texttemplate=(
-                    "Zone %{customdata[0]}<br>%{z:.1f}%"
-                ),
-                hovertemplate=(
-                    "<b>Zone %{customdata[0]}</b><br>"
-                    "Passes: %{customdata[1]}<br>"
-                    "Percentage: %{z:.1f}%"
-                    "<extra></extra>"
-                ),
-            )
+                    zone_counts = (
+                        hash_data["PASS ZONE"]
+                        .value_counts()
+                        .reindex(range(1, 10), fill_value=0)
+                    )
 
-            fig.update_layout(
-                height=480,
-                xaxis_title=None,
-                yaxis_title=None,
-            )
+                    zone_percentages = (
+                        zone_counts / zone_counts.sum() * 100
+                    )
 
-            show_chart(
-                fig,
-                key="formation_pass_zone_heatmap",
-            )
+                    # Top:       7  8  9
+                    # Middle:    4  5  6
+                    # Bottom:    1  2  3
+                    zone_layout = [
+                        [7, 8, 9],
+                        [4, 5, 6],
+                        [1, 2, 3],
+                    ]
+
+                    percentage_grid = [
+                        [
+                            float(zone_percentages.loc[zone])
+                            for zone in row
+                        ]
+                        for row in zone_layout
+                    ]
+
+                    hover_grid = [
+                        [
+                            [
+                                zone,
+                                int(zone_counts.loc[zone]),
+                            ]
+                            for zone in row
+                        ]
+                        for row in zone_layout
+                    ]
+
+                    fig = px.imshow(
+                        percentage_grid,
+                        x=["Left", "Middle", "Right"],
+                        y=["Top", "Middle", "Bottom"],
+                        text_auto=".1f",
+                        aspect="auto",
+                        color_continuous_scale="Blues",
+                        range_color=[0, 100],
+                        labels={"color": "Passes %"},
+                        title=(
+                            f"{hash_label} — "
+                            f"{len(hash_data)} Zoned Passes"
+                        ),
+                    )
+
+                    fig.update_traces(
+                        customdata=hover_grid,
+                        texttemplate=(
+                            "Zone %{customdata[0]}<br>%{z:.1f}%"
+                        ),
+                        hovertemplate=(
+                            "<b>Zone %{customdata[0]}</b><br>"
+                            "Passes: %{customdata[1]}<br>"
+                            "Percentage: %{z:.1f}%"
+                            "<extra></extra>"
+                        ),
+                    )
+
+                    fig.update_layout(
+                        height=420,
+                        xaxis_title=None,
+                        yaxis_title=None,
+                    )
+
+                    show_chart(
+                        fig,
+                        key=(
+                            "pass_zone_heatmap_hash_"
+                            f"{hash_value}"
+                        ),
+                    )
 
             # ---------------------------------------------
             # Formation / play-call breakdown
@@ -3239,12 +3259,13 @@ def render_formation_tendencies(uploaded_file):
                 )
 
             st.caption(
-                "Percentages use pass plays with a recorded "
-                "zone from 1 through 9. Missing zones are excluded. "
+                "Each chart calculates percentages within its "
+                "own hash using pass plays with zones 1–9. "
+                "Middle-hash plays are included in the table "
+                "when Hash = All, but not in either chart. "
                 "Table percentages are calculated within each row. "
                 "The four-run minimum does not apply to this tab."
             )
-
 
 # =========================================================
 # SHARED UPLOAD AND NAVIGATION
