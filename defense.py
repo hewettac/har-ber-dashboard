@@ -173,9 +173,28 @@ def render_breakdown(data, full_data, field, label):
 
     values = clean_breakdown_values(data[field])
     original_charted = values.dropna()
-    charted = apply_custom_groups(
-        field, values, full_data[field]
-    ).dropna()
+    grouped = apply_custom_groups(field, values, full_data[field])
+
+    if field == "DEF FRONT" and group_fronts_by_number:
+        front_names = {
+            "0": "Zero",
+            "1": "One",
+            "2": "Two",
+            "3": "Odd",
+            "4": "Even",
+            "5": "Five",
+            "6": "Six",
+            "7": "Seven",
+            "8": "Eight",
+            "9": "Nine",
+        }
+
+        # Read the leading number from the original front label.
+        first_number = values.str.extract(r"^(\d+)", expand=False)
+        number_group = first_number.map(front_names)
+        grouped = grouped.mask(number_group.notna(), number_group)
+
+    charted = grouped.dropna()
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Charted Plays", f"{len(original_charted):,}")
@@ -278,6 +297,11 @@ except Exception as error:
 df = full_df.copy()
 
 st.sidebar.header("Filters")
+group_fronts_by_number = st.sidebar.toggle(
+    "Group defensive fronts by first number",
+    value=False,
+    help="3 → Odd, 4 → Even, 5 → Five, 6 → Six, etc.",
+)
 
 for field, label in [
     ("DN", "Down"),
