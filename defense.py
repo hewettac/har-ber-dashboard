@@ -13,21 +13,39 @@ st.set_page_config(
 
 st.markdown(
     """
-    <style>
-    .stApp {
-        background-color: #07182d;
-        color: #f5fbff;
-    }
-    [data-testid="stHeader"] {
-        background: transparent;
-    }
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #061426, #0a2342);
-    }
-    h1, h2, h3 {
-        color: #7FDBFF !important;
-    }
-    </style>
+<style>
+:root {
+    --st-text-color: #ffffff;
+}
+
+.stApp {
+    background-color: #07182d;
+    color: #ffffff;
+}
+
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #061426, #0a2342);
+}
+
+.stApp p,
+.stApp label,
+.stApp [data-testid="stCaptionContainer"],
+.stApp [data-testid="stMetricLabel"],
+.stApp [data-testid="stMetricValue"],
+.stApp [data-testid="stWidgetLabel"],
+.stApp [data-testid="stFileUploaderDropzoneInstructions"] small,
+.stApp [data-testid="stFileUploaderFile"] small {
+    color: #ffffff !important;
+}
+
+h1, h2, h3 {
+    color: #7FDBFF !important;
+}
+</style>
     """,
     unsafe_allow_html=True,
 )
