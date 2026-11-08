@@ -279,7 +279,11 @@ df = full_df.copy()
 
 st.sidebar.header("Filters")
 
-for field, label in [("DN", "Down"), ("PLAY TYPE", "Play Type")]:
+for field, label in [
+    ("DN", "Down"),
+    ("PLAY TYPE", "Play Type"),
+    ("OFF FORM", "Formation"),
+]:
     if field not in df.columns:
         continue
 
