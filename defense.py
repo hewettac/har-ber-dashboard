@@ -128,10 +128,10 @@ def apply_custom_groups(field, values, full_values):
     grouped = values.copy()
 
     with st.expander("Custom Grouping"):
-        if field == "DEF FRONT":
+        if field in ["DEF FRONT", "DL ALIGNMENT"]:
             st.caption(
-                "Example: combine 3-3, 3-3+, and 3-3 R+ "
-                "into a group called 3-3 Family."
+                "Select labels to combine, then give the group a name. "
+                "Turn a group off to show its original labels."
             )
 
         notice_key = f"defense_group_notice_{field}"
@@ -250,10 +250,13 @@ def render_breakdown(
         full_data[field],
     )
 
-    # Automatic front grouping uses the original front labels.
-    # It takes priority over manual groups while enabled.
-    if field == "DEF FRONT" and group_fronts_by_number:
-        front_names = {
+    # Apply first-number grouping to fronts AND DL alignment.
+    # Automatic grouping takes priority over manual groups.
+    if (
+        field in ["DEF FRONT", "DL ALIGNMENT"]
+        and group_fronts_by_number
+    ):
+        number_names = {
             "0": "Zero",
             "1": "One",
             "2": "Two",
@@ -271,7 +274,7 @@ def render_breakdown(
             expand=False,
         )
 
-        number_group = first_number.map(front_names)
+        number_group = first_number.map(number_names)
 
         grouped = grouped.mask(
             number_group.notna(),
@@ -279,8 +282,10 @@ def render_breakdown(
         )
 
         st.caption(
-            "Automatic front grouping is on: "
-            "3 → Odd, 4 → Even, 5 → Five, etc."
+            "Automatic grouping is on: "
+            "3 → Odd, 4 → Even, 5 → Five, etc. "
+            "Labels without a recognized starting number "
+            "keep their original or custom group."
         )
 
     charted = grouped.dropna()
@@ -428,9 +433,12 @@ df = full_df.copy()
 st.sidebar.header("Settings")
 
 group_fronts_by_number = st.sidebar.toggle(
-    "Group defensive fronts by first number",
+    "Group fronts and DL alignment by first number",
     value=False,
-    help="3 → Odd, 4 → Even, 5 → Five, 6 → Six, etc.",
+    help=(
+        "Applies to Defensive Front and DL Alignment. "
+        "3 → Odd, 4 → Even, 5 → Five, 6 → Six, etc."
+    ),
 )
 
 st.sidebar.header("Filters")
@@ -451,8 +459,8 @@ for field, label in [
 
     filter_key = f"defense_filter_{field}"
 
-    # Reset a selection if it is unavailable after another
-    # filter changes or a different file is uploaded.
+    # Reset unavailable selections after another filter changes
+    # or a different file is uploaded.
     if (
         filter_key in st.session_state
         and st.session_state[filter_key] not in options
